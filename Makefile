@@ -1,5 +1,6 @@
 ## shallow clone for speed
 
+REBAR3 ?= ./rebar3
 REBAR_GIT_CLONE_OPTIONS += --depth 1
 export REBAR_GIT_CLONE_OPTIONS
 
@@ -19,8 +20,8 @@ tests: eunit ct
 
 .PHONY: run
 run: run_setup unlock
-	@rebar3 as test get-deps
-	@rebar3 as test auto --name $(RUN_NODE_NAME) --script scripts/run_emqx.escript
+	@$(REBAR3) as test get-deps
+	@$(REBAR3) as test auto --name $(RUN_NODE_NAME) --script scripts/run_emqx.escript
 
 .PHONY: run_setup
 run_setup:
@@ -46,13 +47,13 @@ run_setup:
 
 .PHONY: shell
 shell:
-	@rebar3 as test auto
+	@$(REBAR3) as test auto
 
 compile: unlock
-	@rebar3 compile
+	@$(REBAR3) compile
 
 unlock:
-	@rebar3 unlock
+	@$(REBAR3) unlock
 
 clean: distclean
 
@@ -61,35 +62,35 @@ CUTTLEFISH_SCRIPT := _build/default/lib/cuttlefish/cuttlefish
 
 .PHONY: cover
 cover:
-	@rebar3 cover
+	@$(REBAR3) cover
 
 .PHONY: coveralls
 coveralls:
-	@rebar3 as test coveralls send
+	@$(REBAR3) as test coveralls send
 
 .PHONY: xref
 xref:
-	@rebar3 xref
+	@$(REBAR3) xref
 
 .PHONY: dialyzer
 dialyzer:
-	@rebar3 dialyzer
+	@$(REBAR3) dialyzer
 
 .PHONY: proper
 proper:
-	@rebar3 proper -d test/props -c
+	@$(REBAR3) proper -d test/props -c
 
 .PHONY: deps
 deps:
-	@rebar3 get-deps
+	@$(REBAR3) get-deps
 
 .PHONY: eunit
 eunit:
-	@rebar3 eunit -v
+	@$(REBAR3) eunit -v
 
 .PHONY: ct_setup
 ct_setup:
-	rebar3 as test compile
+	$(REBAR3) as test compile
 	@mkdir -p data
 	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
@@ -97,20 +98,20 @@ ct_setup:
 
 .PHONY: ct
 ct: ct_setup
-	@rebar3 ct -v --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+	@$(REBAR3) ct -v --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
 ## e.g. make ct-one-suite suite=emqx_bridge
 .PHONY: $(SUITES:%=ct-%)
 $(CT_SUITES:%=ct-%): ct_setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE --cover
+	@$(REBAR3) ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE --cover
 
 .PHONY: app.config
 app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
 	$(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
 
 $(CUTTLEFISH_SCRIPT):
-	@rebar3 get-deps
+	@$(REBAR3) get-deps
 	@if [ ! -f cuttlefish ]; then make -C _build/default/lib/cuttlefish; fi
 
 bbmustache:

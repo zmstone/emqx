@@ -60,5 +60,9 @@ endif
 xref:
 	$(REBAR) as test xref
 
+.PHONY: dialyzer
+dialyzer: $(REBAR)
+	$(REBAR) as test dialyzer
+
 include packages.mk
 include docker.mk

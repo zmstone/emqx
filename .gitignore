@@ -33,3 +33,5 @@ xrefr
 etc/emqx.conf.rendered
 Mnesia.*/
 *.DS_Store
+rebar.config.rendered
+rebar.lock

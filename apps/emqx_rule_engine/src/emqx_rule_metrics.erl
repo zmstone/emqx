@@ -81,7 +81,7 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
--spec(create(rule_id()) -> Ref :: reference()).
+-spec(create(rule_id()) -> Ref :: counters:counters_ref()).
 create(<<"rule:", _/binary>> = Id) ->
     gen_server:call(?MODULE, {create_rule_metrics, Id});
 create(Id) ->
@@ -104,7 +104,7 @@ get(Id, Metric) ->
 get_overall(Metric) ->
     emqx_metrics:val(Metric).
 
--spec(get_rule_speed(atom()) -> map()).
+-spec(get_rule_speed(rule_id()) -> map()).
 get_rule_speed(Id) ->
     gen_server:call(?MODULE, {get_rule_speed, Id}).
 
@@ -127,9 +127,11 @@ get_action_metrics(Id) ->
       failed => get(Id, 'actions.failure')
      }.
 
--spec(inc(rule_id(), atom()) -> ok).
+-spec inc(rule_id(), atom()) -> ok.
 inc(Id, Metric) ->
     inc(Id, Metric, 1).
+
+-spec inc(rule_id(), atom(), pos_integer()) -> ok.
 inc(Id, Metric, Val) ->
     case couters_ref(Id) of
         not_found ->
@@ -139,7 +141,7 @@ inc(Id, Metric, Val) ->
     end,
     inc_overall(Metric, Val).
 
--spec(inc_overall(rule_id(), atom()) -> ok).
+-spec(inc_overall(atom(), pos_integer()) -> ok).
 inc_overall(Metric, Val) ->
     emqx_metrics:inc(Metric, Val).
 

@@ -36,8 +36,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
     emqx_ctl:register_command('mqtt-user', {emqx_auth_mnesia_cli, auth_cli}, []),
     emqx_ctl:register_command('mqtt-acl', {emqx_auth_mnesia_cli, acl_cli}, []),
-    load_auth_hook(),
-    load_acl_hook(),
+    _ = load_auth_hook(),
+    _ = load_acl_hook(),
     {ok, Sup}.
 
 prep_stop(State) ->

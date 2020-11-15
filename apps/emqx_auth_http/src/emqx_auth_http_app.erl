@@ -33,8 +33,8 @@
 %%--------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    with_env(auth_req, fun load_auth_hook/1),
-    with_env(acl_req,  fun load_acl_hook/1),
+    _ = with_env(auth_req, fun load_auth_hook/1),
+    _ = with_env(acl_req,  fun load_acl_hook/1),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 load_auth_hook(AuthReq) ->

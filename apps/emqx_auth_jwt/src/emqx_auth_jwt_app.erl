@@ -32,7 +32,7 @@
 
 start(_Type, _Args) ->
     ok = emqx_auth_jwt:register_metrics(),
-    emqx:hook('client.authenticate', ?JWT_ACTION),
+    _ = emqx:hook('client.authenticate', ?JWT_ACTION),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 stop(_State) ->

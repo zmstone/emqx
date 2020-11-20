@@ -530,10 +530,10 @@ handle_timeout(TRef, Msg, State) ->
 process_incoming(Data, State = #state{idle_timer = IdleTimer}) ->
     ?LOG(debug, "RECV ~0p", [Data]),
     Oct = iolist_size(Data),
-    emqx_pd:inc_counter(incoming_bytes, Oct),
-    emqx_pd:inc_counter(incoming_pkt, 1),
-    emqx_pd:inc_counter(recv_pkt, 1),
-    emqx_pd:inc_counter(recv_msg, 1),
+    inc_counter(incoming_bytes, Oct),
+    inc_counter(incoming_pkt, 1),
+    inc_counter(recv_pkt, 1),
+    inc_counter(recv_msg, 1),
     % TODO:
     %ok = emqx_metrics:inc('bytes.received', Oct),
 
@@ -564,10 +564,10 @@ handle_outgoing(IoData, #state{socket = Socket, sendfun = SendFun}) ->
 
     Oct = iolist_size(IoData),
 
-    emqx_pd:inc_counter(send_pkt, 1),
-    emqx_pd:inc_counter(send_msg, 1),
-    emqx_pd:inc_counter(outgoing_pkt, 1),
-    emqx_pd:inc_counter(outgoing_bytes, Oct),
+    inc_counter(send_pkt, 1),
+    inc_counter(send_msg, 1),
+    inc_counter(outgoing_pkt, 1),
+    inc_counter(outgoing_bytes, Oct),
 
     %% FIXME:
     %%ok = emqx_metrics:inc('bytes.sent', Oct),
@@ -683,3 +683,7 @@ stop(Reason, State) ->
 
 stop(Reason, Reply, State) ->
     {stop, Reason, Reply, State}.
+
+inc_counter(Name, Value) ->
+    _ = emqx_pd:inc_counter(Name, Value),
+    ok.

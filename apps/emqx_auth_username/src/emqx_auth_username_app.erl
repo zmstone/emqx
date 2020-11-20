@@ -33,7 +33,7 @@ start(_Type, _Args) ->
     ok = emqx_auth_username:register_metrics(),
     HashType = application:get_env(?APP, password_hash, sha256),
     Params = #{hash_type => HashType},
-    emqx:hook('client.authenticate', fun emqx_auth_username:check/3, [Params]),
+    _ = emqx:hook('client.authenticate', fun emqx_auth_username:check/3, [Params]),
     DefaultUsers = application:get_env(?APP, userlist, []),
     ok = emqx_auth_username:init(DefaultUsers),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).

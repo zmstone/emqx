@@ -73,7 +73,7 @@ cli(_) ->
 %% API
 %%--------------------------------------------------------------------
 %% @doc Add clientid with password
--spec(add_clientid(binary(), binary()) -> {atomic, ok} | {aborted, any()}).
+-spec(add_clientid(binary(), 'undefined' | binary()) ->  ok | {error, any()}).
 add_clientid(ClientId, Password) ->
     Client = #?TAB{clientid = ClientId, password = encrypted_data(Password)},
     ret(mnesia:transaction(fun do_add_clientid/1, [Client])).
@@ -85,7 +85,7 @@ do_add_clientid(Client = #?TAB{clientid = ClientId}) ->
     end.
 
 %% @doc Update clientid with newpassword
--spec(update_password(binary(), binary()) -> {atomic, ok} | {aborted, any()}).
+-spec(update_password(binary(), 'undefined' | binary()) ->  ok | {error, any()}).
 update_password(ClientId, NewPassword) ->
     Client = #?TAB{clientid = ClientId, password = encrypted_data(NewPassword)},
     ret(mnesia:transaction(fun do_update_password/1, [Client])).
@@ -107,7 +107,7 @@ all_clientids() ->
     mnesia:dirty_all_keys(?TAB).
 
 %% @doc Remove clientid
--spec(remove_clientid(binary()) -> {atomic, ok} | {aborted, term()}).
+-spec(remove_clientid(binary()) -> ok | {error, any()}).
 remove_clientid(ClientId) ->
     ret(mnesia:transaction(fun mnesia:delete/1, [{?TAB, ClientId}])).
 
@@ -165,6 +165,6 @@ hash(Password, SaltBin, HashType) ->
     emqx_passwd:hash(HashType, <<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    rand:seed(exsplus, erlang:timestamp()),
+    _ = rand:seed(exsplus, erlang:timestamp()),
     Salt = rand:uniform(16#ffffffff), <<Salt:32>>.
 

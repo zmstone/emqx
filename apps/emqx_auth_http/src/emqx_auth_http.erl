@@ -29,6 +29,10 @@
         , feedvar/2
         ]).
 
+-type http_request() :: #http_request{method::'get' | 'post',params::[any()]}.
+-type http_opts() :: #{clientid:=_, peerhost:=_, protocol:=_, _=>_}.
+-type retry_opts() :: #{backoff:=_, interval:=_, times:=_, _=>_}.
+
 %% Callbacks
 -export([ register_metrics/0
         , check/3
@@ -83,7 +87,7 @@ authenticate(#http_request{url = Url,
              ClientInfo, HttpHeaders, HttpOpts, RetryOpts) ->
    request(Method, ContentType, Url, feedvar(Params, ClientInfo), HttpHeaders, HttpOpts, Options, RetryOpts).
 
--spec(is_superuser(maybe(#http_request{}), emqx_types:client(), list(), list(), list()) -> boolean()).
+-spec(is_superuser(undefined | http_request(), http_opts(), Headers::any(), HttpOpts::any(), retry_opts()) -> boolean()).
 is_superuser(undefined, _ClientInfo, _HttpHeaders, _HttpOpts, _RetryOpts) ->
     false;
 is_superuser(#http_request{url = Url,

@@ -95,7 +95,7 @@ lookup_acl(Login) ->
     mnesia:dirty_read(emqx_acl, Login).
 
 %% @doc Remove acl
--spec(remove_acl(binary(), binary()) -> ok | {error, any()}).
+-spec(remove_acl(binary(), binary()) -> ok).
 remove_acl(Login, Topic) ->
     [ ok = mnesia:dirty_delete_object(emqx_acl, #emqx_acl{login = Login, topic = Topic, action = Action, allow = Allow})  || [Action, Allow] <- ets:select(emqx_acl, [{{emqx_acl, Login, Topic,'$1','$2'}, [], ['$$']}])],
     ok.
@@ -163,10 +163,8 @@ acl_cli(["add", Login, Topic, Action, Allow]) ->
     end;
 
 acl_cli(["del", Login, Topic])->
-    case remove_acl(iolist_to_binary(Login), iolist_to_binary(Topic)) of
-         ok -> emqx_ctl:print("ok~n");
-        {error, Reason} -> emqx_ctl:print("Error: ~p~n", [Reason])
-    end;
+    ok = remove_acl(iolist_to_binary(Login), iolist_to_binary(Topic)),
+    emqx_ctl:print("ok~n");
 
 acl_cli(["show", P]) ->
     [emqx_ctl:print("Acl(login = ~p topic = ~p action = ~p allow = ~p)~n",[Login, Topic, Action, Allow])

@@ -36,7 +36,7 @@ start(_Type, _Args) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 stop(_State) ->
-    emqx:unhook('client.authenticate', ?JWT_ACTION).
+    _ = emqx:unhook('client.authenticate', ?JWT_ACTION).
 
 %%--------------------------------------------------------------------
 %% Dummy supervisor

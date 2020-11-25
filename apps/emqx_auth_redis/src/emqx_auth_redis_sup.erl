@@ -34,7 +34,7 @@ init([]) ->
 pool_spec(Server) ->
     case proplists:get_value(type, Server) of
         cluster ->
-            eredis_cluster:start_pool(?APP, Server),
+            _ = eredis_cluster:start_pool(?APP, Server),
             [];
         _ ->
             [ecpool:pool_spec(?APP, ?APP, emqx_auth_redis_cli, Server)]

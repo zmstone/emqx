@@ -163,9 +163,8 @@ acl_cli(["add", Login, Topic, Action, Allow]) ->
     end;
 
 acl_cli(["del", Login, Topic])->
-    case remove_acl(iolist_to_binary(Login), iolist_to_binary(Topic)) of
-         ok -> emqx_ctl:print("ok~n")
-    end;
+    ok = remove_acl(iolist_to_binary(Login), iolist_to_binary(Topic)),
+    emqx_ctl:print("ok~n");
 
 acl_cli(["show", P]) ->
     [emqx_ctl:print("Acl(login = ~p topic = ~p action = ~p allow = ~p)~n",[Login, Topic, Action, Allow])

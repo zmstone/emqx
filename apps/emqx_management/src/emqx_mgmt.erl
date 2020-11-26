@@ -815,7 +815,7 @@ to_version(Version) when is_list(Version) ->
 %%--------------------------------------------------------------------
 
 enable_telemetry() ->
-    lists:foreach(fun(Node) -> enable_telemetry(Node) end,ekka_mnesia:running_nodes()).
+    lists:foreach(fun enable_telemetry/1,ekka_mnesia:running_nodes()).
 
 enable_telemetry(Node) when Node =:= node() ->
     emqx_telemetry:enable();
@@ -823,7 +823,7 @@ enable_telemetry(Node) ->
     rpc_call(Node, enable_telemetry, [Node]).
 
 disable_telemetry() ->
-    lists:foreach(fun(Node) -> disable_telemetry(Node) end,ekka_mnesia:running_nodes()).
+    lists:foreach(fun disable_telemetry/1,ekka_mnesia:running_nodes()).
 
 disable_telemetry(Node) when Node =:= node() ->
     emqx_telemetry:disable();

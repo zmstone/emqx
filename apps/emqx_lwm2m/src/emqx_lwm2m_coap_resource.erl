@@ -49,7 +49,7 @@
 
 % resource operations
 coap_discover(_Prefix, _Args) ->
-    [{absolute, "mqtt", []}].
+    [{absolute, "mqtt", {default,<<>>}}].
 
 coap_get(ChId, [?PREFIX], Query, Content, Lwm2mState) ->
     ?LOG(debug, "~p ~p GET Query=~p, Content=~p", [self(),ChId, Query, Content]),

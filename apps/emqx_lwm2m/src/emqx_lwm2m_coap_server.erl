@@ -87,11 +87,7 @@ listeners_confs(dtls, Envs) ->
     [{dtls, Port, [{dtls_options, InetOpts ++ Opts}] ++ get_lwm2m_opts(Envs)} || {Port, InetOpts} <- Dtls].
 
 format(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]);
-format({Addr, Port}) when is_list(Addr) ->
-    io_lib:format("~s:~w", [Addr, Port]);
-format({Addr, Port}) when is_tuple(Addr) ->
-    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+    io_lib:format("0.0.0.0:~w", [Port]).
 
 get_lwm2m_opts(Envs) ->
     LifetimeMax = proplists:get_value(lifetime_max, Envs, 315360000),

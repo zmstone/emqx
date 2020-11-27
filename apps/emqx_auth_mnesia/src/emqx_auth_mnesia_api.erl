@@ -84,12 +84,12 @@ add_user([ Params | ParamsN ], ReList ) ->
     Password = urldecode(get_value(<<"password">>, Params)),
     IsSuperuser = get_value(<<"is_superuser">>, Params),
     Re = case validate([login, password, is_superuser], [Login, Password, IsSuperuser]) of
-        ok -> 
+        ok ->
             emqx_auth_mnesia_cli:add_user(Login, Password, IsSuperuser);
         Err -> Err
     end,
-    add_user(ParamsN, [{Login, format_msg(Re)} | ReList]);   
-    
+    add_user(ParamsN, [{Login, format_msg(Re)} | ReList]);
+
 add_user([], ReList) ->
     {ok, ReList}.
 
@@ -115,7 +115,9 @@ paginate(Tables, Params, RowFun) ->
     Limit = limit(Params),
     Cursor = qlc:cursor(Qh),
     case Page > 1 of
-        true  -> qlc:next_answers(Cursor, (Page - 1) * Limit);
+        true  ->
+            _ = qlc:next_answers(Cursor, (Page - 1) * Limit),
+            ok;
         false -> ok
     end,
     Rows = qlc:next_answers(Cursor, Limit),

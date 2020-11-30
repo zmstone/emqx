@@ -47,7 +47,7 @@
 %% Resource Callbacks
 %%--------------------------------------------------------------------
 coap_discover(_Prefix, _Args) ->
-    [{absolute, [<<"ps">>], {default, <<>>}}].
+    [{absolute, [<<"ps">>], []}].
 
 coap_get(ChId, ?PS_PREFIX, TopicPath, Query, Content=#coap_content{format = Format}) when TopicPath =/= [] ->
     Topic = topic(TopicPath),

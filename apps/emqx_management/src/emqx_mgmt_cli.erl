@@ -344,7 +344,8 @@ modules(["unload", Name]) ->
     end;
 
 modules(["reload", "emqx_mod_acl_internal" = Name]) ->
-    ok = emqx_modules:reload(list_to_atom(Name));
+    ok = emqx_modules:reload(list_to_atom(Name)),
+    emqx_ctl:print("Module ~s reloaded successfully.~n", [Name]);
 
 modules(["reload", Name]) ->
     emqx_ctl:print("Module: ~p does not need to be reloaded.~n", [Name]);

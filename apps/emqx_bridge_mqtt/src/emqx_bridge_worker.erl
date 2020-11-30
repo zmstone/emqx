@@ -320,12 +320,8 @@ idle(state_timeout, reconnect, State) ->
     connecting(State);
 
 idle(info, {batch_ack, Ref}, State) ->
-    case do_ack(State, Ref) of
-        {ok, NewState} ->
-            {keep_state, NewState};
-        _ ->
-            keep_state_and_data
-    end;
+    {ok, NewState} = do_ack(State, Ref),
+    {keep_state, NewState};
 
 idle(Type, Content, State) ->
     common(idle, Type, Content, State).
@@ -359,12 +355,8 @@ connected(info, {disconnected, Conn, Reason},
             keep_state_and_data
     end;
 connected(info, {batch_ack, Ref}, State) ->
-    case do_ack(State, Ref) of
-        {ok, NewState} ->
-            {keep_state, NewState, {next_event, internal, maybe_send}};
-        _ ->
-            keep_state_and_data
-    end;
+    {ok, NewState} = do_ack(State, Ref),
+    {keep_state, NewState, {next_event, internal, maybe_send}};
 connected(Type, Content, State) ->
     common(connected, Type, Content, State).
 

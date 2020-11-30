@@ -307,7 +307,7 @@ idle({call, From}, ensure_started, State) ->
     case do_connect(State) of
         {ok, State1} ->
             {next_state, connected, State1, [{reply, From, ok}, {state_timeout, 0, connected}]};
-        {error, Reason} ->
+        {error, Reason, _State} ->
             {keep_state_and_data, [{reply, From, {error, Reason}}]}
     end;
 %% @doc Standing by for manual start.

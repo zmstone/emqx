@@ -56,6 +56,7 @@ pgvar(Sql, Params) ->
 %% PostgreSQL Connect/Query
 %%--------------------------------------------------------------------
 
+-dialyzer(no_match).
 connect(Opts) ->
     Host     = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
@@ -64,6 +65,9 @@ connect(Opts) ->
         {ok, C} ->
             conn_post(C),
             {ok, C};
+        {error, Reason = econnrefused} ->
+            ?LOG(error, "[Postgres] Can't connect to Postgres server: Connection refused."),
+            {error, Reason};
         {error, Reason = invalid_authorization_specification} ->
             ?LOG(error, "[Postgres] Can't connect to Postgres server: Invalid authorization specification."),
             {error, Reason};

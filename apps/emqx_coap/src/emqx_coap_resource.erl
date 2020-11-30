@@ -45,7 +45,7 @@
 
 % resource operations
 coap_discover(_Prefix, _Args) ->
-    [{absolute, [<<"mqtt">>], {default, <<>>}}].
+    [{absolute, [<<"mqtt">>], []}].
 
 coap_get(ChId, ?MQTT_PREFIX, Path, Query, _Content) ->
     ?LOG(debug, "coap_get() Path=~p, Query=~p~n", [Path, Query]),

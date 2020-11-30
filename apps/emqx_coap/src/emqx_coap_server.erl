@@ -92,4 +92,9 @@ listeners_confs(dtls, Envs) ->
     end.
 
 format(Port) when is_integer(Port) ->
-    io_lib:format("0.0.0.0:~w", [Port]).
+    io_lib:format("0.0.0.0:~w", [Port]);
+format({Addr, Port}) when is_list(Addr) ->
+    io_lib:format("~s:~w", [Addr, Port]);
+format({Addr, Port}) when is_tuple(Addr) ->
+    io_lib:format("~s:~w", [inet:ntoa(Addr), Port]).
+

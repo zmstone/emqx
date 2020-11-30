@@ -80,14 +80,13 @@ unload(ModuleName) ->
 reload(emqx_mod_acl_internal) ->
     Modules = emqx:get_env(modules, []),
     Env = proplists:get_value(emqx_mod_acl_internal, Modules, undefined),
-    Reload = emqx_mod_acl_internal:reload(Env),
-    case Reload of
+    case emqx_mod_acl_internal:reload(Env) of
         ok ->
-            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]);
+            ?LOG(info, "Reload ~s module successfully.", [emqx_mod_acl_internal]), ok;
         {error, Error} ->
-            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error])
-    end,
-    Reload;
+            ?LOG(error, "Reload module ~s failed, cannot start for ~0p", [emqx_mod_acl_internal, Error]), ok
+    end;
+
 reload(_) ->
     ignore.
 

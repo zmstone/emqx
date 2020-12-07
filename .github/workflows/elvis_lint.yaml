@@ -11,6 +11,8 @@ jobs:
           echo "$GITHUB_BASE_REF"
           echo "$GITHUB_HEAD_REF"
           set +e
+          curl -LO https://github.com/ayo-dele/elvis/releases/download/v0.40/elvis
+          chmod +x ./elvis
           /usr/bin/git fetch --all
           /usr/bin/git checkout $GITHUB_BASE_REF
           /usr/bin/git checkout $GITHUB_HEAD_REF

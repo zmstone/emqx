@@ -83,10 +83,11 @@ done
 cleanup_app(){
     local app="$1"
     pushd "apps/$app"
-    rm -f Makefile rebar.config.script
+    rm -f Makefile rebar.config rebar.config.script
     rm -rf ".github" ".ci"
-    rm -rf src/*.app.src.script
-    rm -rf src/*.appup.src
+    rm -f src/*.app.src
+    rm -f src/*.app.src.script
+    rm -f src/*.appup.src
     popd
 }
 

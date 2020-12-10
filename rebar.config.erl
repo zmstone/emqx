@@ -9,6 +9,13 @@ do(Dir, CONFIG) ->
 bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {branch, "0.6.0"}}}.
 
+%% non-default deps
+deps() ->
+    [ {emqx_dashboard, {git, "https://github.com/emqx/emqx-dashboard", {branch, "dev/v4.3.0"}}}
+    , {emqx_management, {git, "https://github.com/emqx/emqx-management", {branch, "dev/v4.3.0"}}}
+    ].
+
+%% dynamic default deps
 deps(Config) ->
     {deps, OldDpes} = lists:keyfind(deps, 1, Config),
     MoreDeps = case provide_bcrypt_dep() of
@@ -34,12 +41,16 @@ test_deps() ->
 
 profiles() ->
     [ {'emqx',          [ {relx, relx('emqx')}
+                        , {deps, deps()}
                         ]}
     , {'emqx-pkg',      [ {relx, relx('emqx-pkg')}
+                        , {deps, deps()}
                         ]}
     , {'emqx-edge',     [ {relx, relx('emqx-edge')}
+                        , {deps, deps()}
                         ]}
     , {'emqx-edge-pkg', [ {relx, relx('emqx-edge-pkg')}
+                        , {deps, deps()}
                         ]}
     , {test,            [ {deps, test_deps()}
                         , {erl_opts, [debug_info]}

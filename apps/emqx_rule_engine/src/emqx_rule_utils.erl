@@ -121,11 +121,11 @@ proc_cmd(Tokens, Data, Opts) ->
     [proc_tmpl(Tks, Data, Opts) || Tks <- Tokens].
 
 %% preprocess SQL with place holders
--spec(preproc_sql(Sql::binary()) -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary()) -> {prepare_statement(), [prepare_params()]}).
 preproc_sql(Sql) ->
     preproc_sql(Sql, '?').
 
--spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n') -> {prepare_statement(), prepare_params()}).
+-spec(preproc_sql(Sql::binary(), ReplaceWith :: '?' | '$n') -> {prepare_statement(), [prepare_params()]}).
 preproc_sql(Sql, ReplaceWith) ->
     case re:run(Sql, ?EX_PLACE_HOLDER, [{capture, all_but_first, binary}, global]) of
         {match, PlaceHolders} ->

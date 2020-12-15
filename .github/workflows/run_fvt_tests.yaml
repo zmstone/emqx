@@ -170,6 +170,7 @@ jobs:
            set -e -x -u
            docker run -i --rm -v $(pwd)/emqx:/emqx emqx/build-env:erl22.3-ubuntu20.04 bash -c "make -C /emqx emqx-zip"
            sudo chown -R $USER:$USER emqx/
+           sudo cp emqx/rebar3 "$(which rebar3)"
         - name: build emqtt-bench
           run: make -C emqtt-bench
         - name: build lux

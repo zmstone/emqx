@@ -1,9 +1,26 @@
 version: '3'
 
 services:
+  erlang:
+    container_name: erlang
+    image: erlang:22.3
+    depends_on:
+      - mysql_server
+      - redis_server
+      - mongo_server
+      - pgsql_server
+      - ldap_server
+    networks:
+      - emqx_bridge
+    volumes:
+      - ../../.:/emqx
+    working_dir: /emqx
+    tty: true
+
+
   mysql_server:
     container_name: mysql
-    image: mysql:5.7
+    image: mysql:${MYSQL_VSN}
     restart: always
     ports:
       - 3306:3306
@@ -31,7 +48,7 @@ services:
 
   redis_server:
     container_name: redis
-    image: redis:5
+    image: redis:${REDIS_VSN}
     ports:
       - 6379:6379
     command:
@@ -43,7 +60,7 @@ services:
 
   mongo_server:
     container_name: mongo
-    image: mongo:4.1
+    image: mongo:${MONGO_VSN}
     ports:
       - 27017:27017
     restart: always
@@ -55,7 +72,7 @@ services:
 
   pgsql_server:
     container_name: pgsql
-    image: postgres:11
+    image: postgres:${PGSQL_VSN}
     ports:
       - 5432:5432
     restart: always
@@ -68,7 +85,10 @@ services:
 
   ldap_server:
     container_name: openldap
-    build: ./emqx-ldap
+    build:
+      context: ./emqx_ldap
+      args: 
+        LDAP_VSN: ${LDAP_VSN}
     image: emqx-ldap:1.0
     ports:
       - 389:389

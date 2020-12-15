@@ -8,7 +8,7 @@ on:
   pull_request:
   workflow_dispatch:
   repository_dispatch:
-    types: [run_tests]
+    types: [run_actions]
 
 jobs:
     docker_test:
@@ -76,8 +76,8 @@ jobs:
             sed -i -r "s/^appVersion: .*$/appVersion: \"${version}\"/g" deploy/charts/emqx/Chart.yaml
             sed -i -r 's/  pullPolicy: .*$/  pullPolicy: Never/g' deploy/charts/emqx/values.yaml
 
-            helm install emqx deploy/charts/emqx --debug --dry-run
-            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqx.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx
+            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx --debug --dry-run
+            helm install emqx --set emqxAclConfig="" --set emqxConfig.EMQX_ZONE__EXTERNAL__RETRY_INTERVAL=2s --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 deploy/charts/emqx
 
             while [ "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.replicas}')" \
               != "$(kubectl get StatefulSet -l app.kubernetes.io/name=emqx -o jsonpath='{.items[0].status.readyReplicas}')" ]; do
@@ -108,7 +108,105 @@ jobs:
             pytest -v paho.mqtt.testing/interoperability/test_cluster --host1 $emqx1 --host2 $emqx2
             pytest -v paho.mqtt.testing/interoperability/test_client --host $emqx_svc
 
-
+    relup_test:
+        runs-on: ubuntu-20.04
+        defaults:
+          run:
+            shell: bash
+        steps:
+        - uses: bajankristof/setup-erlang@master
+          with:
+            otp-version: 22.3
+            allow-cache: false
+        - uses: actions/setup-python@v2
+          with:
+            python-version: '3.8'
+            architecture: 'x64'
+        - uses: actions/checkout@v2
+          with:
+            repository: emqx/paho.mqtt.testing
+            ref: develop-4.0
+            path: paho.mqtt.testing
+        - uses: actions/checkout@v2
+          with:
+            repository: terry-xiaoyu/one_more_emqx
+            ref: master
+            path: one_more_emqx
+        - uses: actions/checkout@v2
+          with:
+            repository: emqx/emqtt-bench
+            ref: master
+            path: emqtt-bench
+        - uses: actions/checkout@v2
+          with:
+            repository: hawk/lux
+            ref: lux-2.4
+            path: lux
+        - uses: actions/checkout@v2
+          with:
+            repository: ${{ github.repository }}
+            path: emqx
+            fetch-depth: 0
+        - name: get version
+          run: |
+            set -e -x -u
+            cd emqx
+            vsn="$(erl -eval '{ok, [{application,emqx, L} | _]} = file:consult("src/emqx.app.src"), {vsn, VSN} = lists:keyfind(vsn,1,L), io:fwrite(VSN), halt().' -noshell)"
+            vsn="4.2.4"
+            echo "VSN=$vsn" >> $GITHUB_ENV
+            pre_tag="$(echo $vsn | grep -oE '^[0-9]+.[0-9]')"
+            old_vsns="$(git tag -l "$pre_tag.[0-9]" | tr "\n" " " | sed "s/$vsn//")"
+            echo "OLD_VSNS=$old_vsns" >> $GITHUB_ENV
+        - name: download emqx
+          run: |
+            set -e -x -u
+            cd emqx
+            old_vsns=($(echo $OLD_VSNS | tr ' ' ' '))
+            for old_vsn in ${old_vsns[@]}; do
+              wget https://s3-us-west-2.amazonaws.com/packages.emqx/emqx-ce/v$old_vsn/emqx-ubuntu20.04-${old_vsn}-x86_64.zip
+            done
+        - name: build emqx
+          run: |
+           set -e -x -u
+           docker run -i --rm \
+             -v $(pwd)/emqx:/emqx \
+             emqx/build-env:erl22.3-ubuntu20.04 \
+             bash -c "make -C /emqx emqx-zip"
+           sudo chown -R $USER:$USER emqx/_packages/emqx
+           make -C emqx rebar3
+           sudo rm -rf /usr/local/bin/rebar3
+           sudo ln -s emqx/rebar3 /usr/local/bin/rebar3
+           rebar3 version
+        - name: build emqtt-bench
+          run: make -C emqtt-bench
+        - name: build lux
+          run: |
+            set -e -u -x
+            cd lux
+            autoconf
+            ./configure
+            make
+            sudo make install
+        - name: run relup test
+          run: |
+            set -e -x -u
+            if [ -n "$OLD_VSNS" ]; then
+                cp emqx/_packages/emqx/*.zip .
+                cp emqx/*.zip .
+                lux -v \
+                --timeout 600000 \
+                --var PACKAGE_PATH=$(pwd) \
+                --var BENCH_PATH=$(pwd)/emqtt-bench \
+                --var ONE_MORE_EMQX_PATH=$(pwd)/one_more_emqx \
+                --var VSN="$VSN" \
+                --var OLD_VSNS="$OLD_VSNS" \
+                emqx/.ci/fvt_tests/relup.lux
+            fi
+        - uses: actions/upload-artifact@v1
+          if: failure()
+          with:
+            name: lux_logs
+            path: lux_logs
 
 
 

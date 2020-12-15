@@ -8,6 +8,9 @@ on:
     types:
       - published
   pull_request:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run_actions]
 
 jobs:
   windows:

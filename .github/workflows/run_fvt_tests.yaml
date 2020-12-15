@@ -173,9 +173,10 @@ jobs:
              emqx/build-env:erl22.3-ubuntu20.04 \
              bash -c "make -C /emqx emqx-zip"
            sudo chown -R $USER:$USER emqx/_packages/emqx
-           make -C emqx rebar3
-           sudo rm -rf /usr/local/bin/rebar3
-           sudo ln -s emqx/rebar3 /usr/local/bin/rebar3
+           cd emqx
+           REBAR3_PATH=$(which rebar3)
+           sudo rm -rf $REBAR3_PATH
+           sudo ln -s ./rebar3 $REBAR3_PATH
            rebar3 version
         - name: build emqtt-bench
           run: make -C emqtt-bench

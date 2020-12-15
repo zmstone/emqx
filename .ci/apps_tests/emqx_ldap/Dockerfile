@@ -1,13 +1,13 @@
 FROM buildpack-deps:stretch
 
-ARG VERSION=2.4.50
+ARG LDAP_VSN=2.4.50
 
 RUN apt-get update && apt-get install -y groff groff-base
-RUN wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-${VERSION}.tgz \
-    && gunzip -c openldap-${VERSION}.tgz | tar xvfB - \
-    && cd openldap-${VERSION} \
+RUN wget ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-${LDAP_VSN}.tgz \
+    && gunzip -c openldap-${LDAP_VSN}.tgz | tar xvfB - \
+    && cd openldap-${LDAP_VSN} \
     && ./configure && make depend && make && make install \
-    && cd .. && rm -rf  openldap-${VERSION}
+    && cd .. && rm -rf  openldap-${LDAP_VSN}
 
 COPY ./slapd.conf /usr/local/etc/openldap/slapd.conf
 COPY ./emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif

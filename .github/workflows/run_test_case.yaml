@@ -27,7 +27,7 @@ jobs:
         - name: set up
           env:
             MYSQL_VSN: ${{ matrix.mysql_vsn }}
-            REIDS_VSN: ${{ matrix.reids_vsn }}
+            REDIS_VSN: ${{ matrix.reids_vsn }}
             MONGO_VSN: ${{ matrix.mongo_vsn }}
             PGSQL_VSN: ${{ matrix.pgsql_vsn }}
             LDAP_VSN: ${{ matrix.ldap_vsn }}

@@ -30,6 +30,14 @@ eunit: $(REBAR)
 ct: $(REBAR)
 	$(REBAR) ct
 
+.PHONY: cover
+cover: $(REBAR)
+	$(REBAR) cover
+
+.PHONY: coveralls
+coveralls: $(REBAR)
+	$(REBAR) as test coveralls send
+
 .PHONY: $(PROFILES)
 $(PROFILES:%=%): $(REBAR)
 ifneq ($(shell echo $(@) |grep edge),)

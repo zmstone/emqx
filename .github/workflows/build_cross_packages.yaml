@@ -1,10 +1,13 @@
 name: Cross build packages
 
 on:
-  pull_request:
   push:
     tags:
       - v*
+  release:
+    types:
+      - published
+  pull_request:
 
 jobs:
   windows:
@@ -340,7 +343,7 @@ jobs:
       with:
         path: emqx
     - name: update to github and emqx.io
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
@@ -357,7 +360,7 @@ jobs:
              -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${version}\" }" \
              ${{ secrets.EMQX_IO_RELEASE_API }}
     - name: push docker image to docker hub
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")
@@ -369,7 +372,7 @@ jobs:
         sudo TARGET=emqx/emqx-edge make -C emqx docker-push
         sudo TARGET=emqx/emqx-edge make -C emqx docker-manifest-list
     - name: update repo.emqx.io
-      if: contains(github.ref, 'refs/tags/')
+      if: github.event_name == 'release'
       run: |
         set -e -x -u
         version=$(echo ${{ github.ref }} | sed -r  "s ^refs/heads/|^refs/tags/(.*) \1 g")

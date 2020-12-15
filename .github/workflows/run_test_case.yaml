@@ -17,14 +17,20 @@ jobs:
         strategy:
           matrix:
             mysql_vsn: [5.7, 8]
-            pgsql_vsn: [9, 10, 11, 12, 13]
+            redis_vsn: [5]
+            mongo_vsn: [4.1]
+            pgsql_vsn: [11, 12, 13]
+            ldap_vsn: [2.4.50]
 
         steps:
         - uses: actions/checkout@v2
         - name: set up
           env:
             MYSQL_VSN: ${{ matrix.mysql_vsn }}
+            REIDS_VSN: ${{ matrix.reids_vsn }}
+            MONGO_VSN: ${{ matrix.mongo_vsn }}
             PGSQL_VSN: ${{ matrix.pgsql_vsn }}
+            LDAP_VSN: ${{ matrix.ldap_vsn }}
           run: |
             cp apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap
             cp apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap

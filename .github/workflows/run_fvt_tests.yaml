@@ -69,7 +69,7 @@ jobs:
             KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
           timeout-minutes: 5
           run: |
-            version=$(git describe --tags --match '[0-9]*')
+            version="$(./pkg-vsn.sh)"
             sudo docker save emqx/emqx:$version -o emqx.tar.gz
             sudo k3s ctr image import emqx.tar.gz
 
@@ -168,17 +168,8 @@ jobs:
         - name: build emqx
           run: |
            set -e -x -u
-           docker run -i --rm \
-             -v $(pwd)/emqx:/emqx \
-             emqx/build-env:erl22.3-ubuntu20.04 \
-             bash -c "make -C /emqx emqx-zip"
-           sudo chown -R $USER:$USER emqx/_packages/emqx
-           cd emqx
-           REBAR3_PATH=$(which rebar3)
-           sudo rm -rf $REBAR3_PATH
-           sudo ln -s ./rebar3 $REBAR3_PATH
-           head -2 $(which rebar3)
-           rebar3 version
+           docker run -i --rm -v $(pwd)/emqx:/emqx emqx/build-env:erl22.3-ubuntu20.04 bash -c "make -C /emqx emqx-zip"
+           sudo chown -R $USER:$USER emqx/
         - name: build emqtt-bench
           run: make -C emqtt-bench
         - name: build lux

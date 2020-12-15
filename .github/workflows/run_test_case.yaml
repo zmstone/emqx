@@ -3,29 +3,40 @@ name: Run test case
 on: [push, pull_request]
 
 jobs:
-
     run_test_case:
 
         runs-on: ubuntu-latest
 
-        container:
-            image: erlang:22.1
-
         steps:
-        - uses: actions/checkout@v1
+        - uses: gleam-lang/setup-erlang@v1.1.0
+          id: install_erlang
+          with:
+            otp-version: 22.3.4.9
+        - uses: actions/checkout@v2
+        - name: set up
+          run: |
+            cp apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx-ldap
+            cp apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx-ldap
+            cp apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx-ldap
+            docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
+            docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
+        - name: set config files
+          run: |
+            echo "auth.mysql.ssl.cafile =   /emqx/_build/emqx/lib/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/ca.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            echo "auth.mysql.ssl.certfile = /emqx/_build/emqx/lib/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-cert.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
+            echo "auth.mysql.ssl.keyfile =  /emqx/_build/emqx/lib/emqx_auth_mysql/test/emqx_auth_mysql_SUITE_data/client-key.pem" >> apps/emqx_auth_mysql/etc/emqx_auth_mysql.conf
 #        - name: Code dialyzer
 #          run: |
 #            make xref
 #            make dialyzer
 #            rm -f rebar.lock
-        - name: Run tests
+        - name: run tests
           run: |
-            # make eunit
-            # rm -f rebar.lock
+            make
             make ct
             rm -f rebar.lock
             make cover
-        - name: Coveralls
+        - name: coveralls
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |

@@ -26,9 +26,9 @@ jobs:
             MYSQL_VSN: ${{ matrix.mysql_vsn }}
             PGSQL_VSN: ${{ matrix.pgsql_vsn }}
           run: |
-            cp apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx-ldap
-            cp apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx-ldap
-            cp apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx-ldap
+            cp apps/emqx_auth_ldap/emqx.io.ldif .ci/apps_tests/emqx_ldap
+            cp apps/emqx_auth_ldap/emqx.schema  .ci/apps_tests/emqx_ldap
+            cp apps/emqx_auth_ldap/test/certs/* .ci/apps_tests/emqx_ldap
             docker-compose -f .ci/apps_tests/docker-compose.yaml build --no-cache
             docker-compose -f .ci/apps_tests/docker-compose.yaml up -d
         - name: set config files

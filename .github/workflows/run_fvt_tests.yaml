@@ -175,6 +175,8 @@ jobs:
            emqx/rebar3 -v
            head -2 "$WHICH"
            $WHICH -v
+           ls -l $WHICH
+           readlink -f "$WHICH"
            rebar3 -v
         - name: build emqtt-bench
           run: make -C emqtt-bench

@@ -17,10 +17,14 @@
 %% emtrypoint for replicated transactions
 -module(emqx_tx).
 
--export([do/3]).
+-export([transaction/3]).
+-export([async_dirty/3]).
 
 -export_type([ args/0
              , shard/0
+             , func/0
+             , reason/0
+             , result/0
              ]).
 
 -include("emqx_rlog.hrl").
@@ -28,24 +32,48 @@
 
 -type shard() :: ?SHARD_ROUTING.
 -type args() :: [term()].
+-type result() :: term(). %% transaction function result
+-type reason() :: term(). %% transaction abort reason
+-type func() :: fun((...) -> result()).
 
 %% @doc Perform a transaction and log changes.
 %% the logged changes are to be replicated to other nodes.
--spec do(shard(), function(), args()) ->
-        {atomic, term()} | {aborted, term()}.
-do(Shard, F, Args) ->
+-spec transaction(shard(), func(), args()) -> {atomic, result()} | {aborted, reason()}.
+transaction(Shard, F, Args) -> do(transaction, Shard, F, Args).
+
+%% @doc TODO
+-spec async_dirty(shard(), func(), args()) -> result().
+async_dirty(Shard, F, Args) -> do(async_dirty, Shard, F, Args).
+
+do(Type, Shard, F, Args) ->
     TxFun =
         fun() ->
                 Result = apply(F, Args),
-                Ops = get_tx_ops(Shard),
-                ok = emqx_rlog_tab:write(Shard, emqx_rlog:make_key(), Ops),
+                Ops = get_tx_ops(Shard, F, Args),
+                case Ops =:= [] of
+                    true ->
+                        %% nothing to log, avoid creating a key
+                        ok;
+                    false ->
+                        Key = emqx_rlog:make_key(),
+                        ok = emqx_rlog_tab:write(Shard, Key, Ops)
+                end,
                 Result
         end,
-    mnesia:transaction(TxFun).
+    case Type of
+        transaction -> mnesia:transaction(TxFun);
+        async_dirty -> mnesia:async_dirty(TxFun)
+    end.
 
-get_tx_ops(Shard) ->
+get_tx_ops(Shard, F, Args) ->
     {_, _, Store} = mnesia:get_activity_id(),
-    filter(Shard, ets:tab2list(Store#tidstore.store)).
+    case Store of
+        non_transaction ->
+            args_as_op(F, Args);
+        #tidstore{store = Ets} ->
+            AllOps = ets:tab2list(Ets),
+            filter(Shard, AllOps)
+    end.
 
 filter(Shard, Ops) -> filter(Shard, Ops, []).
 
@@ -75,3 +103,8 @@ is_routing_table(emqx_trie) -> true;
 is_routing_table(emqx_trie_node) -> true;
 is_routing_table(emqx_route) -> true;
 is_routing_table(_) -> false.
+
+%% we can only hope that this is not an anonymous function
+%% add the function is idempotent.
+args_as_op(F, Args) -> [{F, Args, apply}].
+

@@ -29,11 +29,14 @@
 
 -type key() :: emqx_rlog:key().
 -type table_name():: atom().
--type change_type() :: write | delete | delete_object.
--type op() :: {{table_name(), term()}, term(), change_type()}.
+-type change_type() :: write | delete | delete_object | apply.
+-type op() :: {{table_name(), term()} | emqx_tx:func(), term() | emqx_tx:args(), change_type()}.
 -type shard() :: emqx_tx:shard().
 
 -include("emqx_rlog.hrl").
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 -record(rlog,
         { key :: key() %% key should be monotoic and globally unique
@@ -47,11 +50,13 @@ mnesia(boot) ->
            , {record_name, rlog}
            , {attributes, record_info(fields, rlog)}
            ],
-    ok = ekka_mnesia:create_table(?SHARD_ROUTING, Opts).
+    ok = ekka_mnesia:create_table(?SHARD_ROUTING, Opts);
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?SHARD_ROUTING).
 
 %% @doc Write a transaction log.
--spec write(shard(), key(), [op()]) -> ok.
-write(Shard, Key, Ops) ->
+-spec write(shard(), key(), [op(),...]) -> ok.
+write(Shard, Key, [_ | _] = Ops) ->
     Log = #rlog{ key = Key
                , ops = Ops
                },

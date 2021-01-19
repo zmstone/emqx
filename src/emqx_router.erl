@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_rlog.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
 -logger_header("[Router]").
@@ -62,6 +63,9 @@
         , handle_info/2
         , terminate/2
         , code_change/3
+        ]).
+
+-export([ insert_direct_route/1
         ]).
 
 -type(group() :: binary()).
@@ -119,7 +123,7 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
                 true  -> trans(fun insert_trie_route/1, [Route]);
-                false -> insert_direct_route(Route)
+                false -> async_dirty(fun ?MODULE:insert_direct_route/1, [Route])
             end
     end.
 
@@ -224,7 +228,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:write/3, [?ROUTE_TAB, Route, sticky_write]).
+    mnesia:write(?ROUTE_TAB, Route, write).
 
 insert_trie_route(Route = #route{topic = Topic}) ->
     case mnesia:wread({?ROUTE_TAB, Topic}) of
@@ -247,10 +251,18 @@ delete_trie_route(Route = #route{topic = Topic}) ->
     end.
 
 %% @private
--spec(trans(function(), list(any())) -> ok | {error, term()}).
+-spec(trans(emqx_tx:func(), emqx_tx:args()) -> emqx_tx:result() | {error, term()}).
 trans(Fun, Args) ->
-    case mnesia:transaction(Fun, Args) of
-        {atomic, Ok} -> Ok;
+    case emqx_tx:transaction(?SHARD_ROUTING, Fun, Args) of
+        {atomic, Result} -> Result;
         {aborted, Reason} -> {error, Reason}
     end.
 
+-spec(async_dirty(emqx_tx:func(), emqx_tx:args()) -> emqx_tx:result() | {error, term()}).
+async_dirty(Fun, Args) ->
+    try
+        emqx_tx:async_dirty(?SHARD_ROUTING, Fun, Args)
+    catch
+        C : E : St ->
+            {error, {async_dirty_error, C, E, St}}
+    end.

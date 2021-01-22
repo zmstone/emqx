@@ -50,9 +50,9 @@ mnesia(boot) ->
            , {record_name, rlog}
            , {attributes, record_info(fields, rlog)}
            ],
-    ok = ekka_mnesia:create_table(?SHARD_ROUTING, Opts);
+    ok = ekka_mnesia:create_table(?RLOG_SHARD_ROUTING, Opts);
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?SHARD_ROUTING).
+    ok = ekka_mnesia:copy_table(?RLOG_SHARD_ROUTING).
 
 %% @doc Write a transaction log.
 -spec write(shard(), key(), [op(),...]) -> ok.

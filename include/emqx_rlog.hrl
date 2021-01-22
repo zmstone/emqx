@@ -16,5 +16,7 @@
 
 -ifndef(EMQX_RLOG_H).
 -define(EMQX_RLOG_H, true).
--define(SHARD_ROUTING, rlog_shard_routing).
+-define(RLOG_SHARD_ROUTING, emqx_rlog_routing).
+-define(RLOG_SHARDS, [ ?RLOG_SHARD_ROUTING
+                     ]).
 -endif.

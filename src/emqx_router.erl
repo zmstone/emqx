@@ -253,7 +253,7 @@ delete_trie_route(Route = #route{topic = Topic}) ->
 %% @private
 -spec(trans(emqx_tx:func(), emqx_tx:args()) -> emqx_tx:result() | {error, term()}).
 trans(Fun, Args) ->
-    case emqx_tx:transaction(?SHARD_ROUTING, Fun, Args) of
+    case emqx_tx:transaction(?RLOG_SHARD_ROUTING, Fun, Args) of
         {atomic, Result} -> Result;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -261,7 +261,7 @@ trans(Fun, Args) ->
 -spec(async_dirty(emqx_tx:func(), emqx_tx:args()) -> emqx_tx:result() | {error, term()}).
 async_dirty(Fun, Args) ->
     try
-        emqx_tx:async_dirty(?SHARD_ROUTING, Fun, Args)
+        emqx_tx:async_dirty(?RLOG_SHARD_ROUTING, Fun, Args)
     catch
         C : E : St ->
             {error, {async_dirty_error, C, E, St}}

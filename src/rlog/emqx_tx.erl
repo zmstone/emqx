@@ -30,7 +30,7 @@
 -include("emqx_rlog.hrl").
 -include_lib("mnesia/src/mnesia.hrl").
 
--type shard() :: ?SHARD_ROUTING.
+-type shard() :: ?RLOG_SHARD_ROUTING.
 -type args() :: [term()].
 -type result() :: term(). %% transaction function result
 -type reason() :: term(). %% transaction abort reason
@@ -92,7 +92,7 @@ is_change_type_for_logging(_) ->
     false.
 
 %% filter (and maybe transform) a table op for the given shard for logging.
-ops_for_shard(?SHARD_ROUTING, Op, Acc) ->
+ops_for_shard(?RLOG_SHARD_ROUTING, Op, Acc) ->
     {{Tab, _Key}, _Record, _C} = Op,
     case is_routing_table(Tab) of
         true -> [Op | Acc];

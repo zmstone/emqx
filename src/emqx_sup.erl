@@ -63,20 +63,22 @@ stop_child(ChildId) ->
 
 init([]) ->
     KernelSup = child_spec(emqx_kernel_sup, supervisor),
+    RlogSup = child_spec(emqx_rlog_sup, supervisor),
     RouterSup = child_spec(emqx_router_sup, supervisor),
     BrokerSup = child_spec(emqx_broker_sup, supervisor),
     CMSup = child_spec(emqx_cm_sup, supervisor),
     SysSup = child_spec(emqx_sys_sup, supervisor),
-    Childs = [KernelSup] ++
-             [RouterSup || emqx_boot:is_enabled(router)] ++
-             [BrokerSup || emqx_boot:is_enabled(broker)] ++
-             [CMSup || emqx_boot:is_enabled(broker)] ++
-             [SysSup],
+    Children =
+        [KernelSup, RlogSup] ++
+        [RouterSup || emqx_boot:is_enabled(router)] ++
+        [BrokerSup || emqx_boot:is_enabled(broker)] ++
+        [CMSup || emqx_boot:is_enabled(broker)] ++
+        [SysSup],
     SupFlags = #{strategy => one_for_all,
                  intensity => 0,
                  period => 1
                 },
-    {ok, {SupFlags, Childs}}.
+    {ok, {SupFlags, Children}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

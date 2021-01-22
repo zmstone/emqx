@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% emtrypoint for replicated transactions
+%% @doc emtrypoint for replicated transactions
 -module(emqx_tx).
 
 -export([transaction/3]).
@@ -107,4 +107,3 @@ is_routing_table(_) -> false.
 %% we can only hope that this is not an anonymous function
 %% add the function is idempotent.
 args_as_op(F, Args) -> [{F, Args, apply}].
-

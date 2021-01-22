@@ -32,7 +32,7 @@ init([]) ->
 
 child(Shard) ->
     #{ id => Shard
-     , start => {emqx_rlog_server, start_link, [Shard]}
+     , start => {emqx_rlog_server, start_link, [Shard, #{}]} % TODO config
      , restart => permanent
      , shutdown => 5000
      , type => worker

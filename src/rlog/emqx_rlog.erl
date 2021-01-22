@@ -21,10 +21,12 @@
         ]).
 
 -export_type([ key/0
+             , rlog_ts/0
              , node_id/0
              ]).
 
--type key() :: {integer(), node_id()}.
+-type rlog_ts() :: integer().
+-type key() :: {rlog_ts(), node_id()}.
 -type node_id() :: integer().
 
 %% Log key should be monotoic and globally unique.

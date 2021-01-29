@@ -14,56 +14,96 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This module implements a gen_server which pushes rlogs to
+%% @doc This module implements a gen_statem which pushes rlogs to
 %% a remote node.
+%%
+%% The state machine consists of 3 states:
+%% `copybase', `catchup', `insync', which are explained in detail below:
+%%
+%% 1. `copybase'
+%%    Tn copybase state, agent process tries to copy all records
+%%    in the shard's tables to the watcher node.
+%%    This state is skipped over to `catchup' state
+%%    when the checkpoint (provided in start option) is found in the rlog
+%%    table.
+%% 2. `catchup'
+%%    In this state, agent process sends the recorded changes in rlog
+%%    table to watcher node.
+%% 3. `insync'
+%%    In this state, agent process subscribes to rlog table and sends
+%%    the realtime updates to the watcher node.
+%%
+%% All sends are done as `gen_rpc' calls to the watcher node.
 
 -module(emqx_rlog_agent).
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 
 -export([start_link/3, stop/1]).
 
--export([ init/1
-        , terminate/2
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , code_change/3
-        ]).
+-export([init/1, terminate/3, code_change/4, callback_mode/0]).
+
+-export([copybase/3, catchup/3, insync/3]).
+
+%% Concurrent transactions (rlog entries) may each other and result in
+%% disorder. e.g. transaction A having timestamp 1 is logged *after*
+%% transaction B with timestamp 2.
+-define(CHECKPOINT_MARGIN_SECCONDS, 60).
 
 start_link(Shard, Watcher, Opts) ->
-    gen_server:start_link(?MODULE, {Shard, Watcher, Opts}).
+    gen_statem:start_link(?MODULE, {Shard, Watcher, Opts}, []).
 
 stop(Pid) ->
     try
-        gen_server:call(Pid, stop, infinity)
+        gen_statem:call(Pid, stop, infinity)
     catch
         exit : {noproc, _} ->
             %% race condition, the process exited
-            %% before or during this gen_server:call
+            %% before or during this call
             ok
     end.
 
+callback_mode() -> [state_functions, state_enter].
+
 init({Shard, Watcher, Opts}) ->
     process_flag(trap_exit, true),
-    {ok, #{ shard => Shard
-          , watcher => Watcher
-          , opts => Opts
-          }}.
+    Checkpoint = safe_margin(maps:get(checkpoint, Opts)),
+    Data = #{ shard => Shard
+            , watcher => Watcher
+            , checkpoint => Checkpoint
+            },
+    {ok, copybase, Data}.
 
-handle_info(_Info, St) ->
-    {noreply, St}.
+copybase(enter, _OldState, _Data) ->
+    keep_state_and_data;
+copybase(Type, Event, Data) ->
+    handle_event(Type, Event, ?FUNCTION_NAME, Data).
 
-handle_cast(_Cast, St) ->
-    {noreply, St}.
+catchup(enter, _OldState, _Data) ->
+    keep_state_and_data;
+catchup(Type, Event, Data) ->
+    handle_event(Type, Event, ?FUNCTION_NAME, Data).
 
-handle_call(_From, stop, St) ->
-    {stop, normal, ok, St};
-handle_call(_From, Call, St) ->
-    {reply, {error, {unknown_call, Call}}, St}.
+insync(enter, _OldState, _Data) ->
+    keep_state_and_data;
+insync(Type, Event, Data) ->
+    handle_event(Type, Event, ?FUNCTION_NAME, Data).
 
-code_change(_OldVsn, St, _Extra) ->
-    {ok, St}.
+handle_event({call, From}, stop, _State, _Data) ->
+    {stop_and_reply, normal, {reply, From, ok}};
+handle_event(_Type, _Event, _State, _Data) ->
+    keep_state_and_data.
 
-terminate(_Reason, St) ->
-    {ok, St}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
+
+terminate(_Reason, _State, _Data) ->
+    ok.
+
+safe_margin(no_checkpoint) -> no_checkpoint;
+safe_margin(Ts) ->
+    R = Ts - ?CHECKPOINT_MARGIN_SECCONDS * 1000000000,
+    case R < 0 of
+        true -> 0;
+        _ -> R
+    end.

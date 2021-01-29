@@ -72,7 +72,12 @@ handle_cast(_Cast, St) ->
     {noreply, St}.
 
 handle_call(_From, {watch, Watcher, Opts}, St) ->
-    {reply, ok, do_watch(St, Watcher, Opts)};
+    case maps:is_key(checkpoint, Opts) of
+        true ->
+            {reply, ok, do_watch(St, Watcher, Opts)};
+        false ->
+            {reply, {error, missing_checkpoint}, St}
+    end;
 handle_call(_From, {unwatch, Watcher}, St) ->
     {reply, ok, do_unwatch(St, Watcher)};
 handle_call(_From, Call, St) ->

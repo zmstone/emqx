@@ -402,14 +402,7 @@ is_debug(VarName) ->
         _ -> true
     end.
 
-provide_bcrypt_dep() ->
-    case os:type() of
-        {win32, _} -> false;
-        _ -> true
-    end.
-
-provide_bcrypt_release(ReleaseType) ->
-    provide_bcrypt_dep() andalso ReleaseType =:= cloud.
+provide_bcrypt_release(ReleaseType) -> ReleaseType =:= cloud.
 
 erl_opts_i() ->
     [{i, "apps"}] ++

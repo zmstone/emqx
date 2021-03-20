@@ -63,6 +63,11 @@ jobs:
           - profile: emqx-edge
 
     steps:
+    - name: Set up Cygwin
+      uses: egor-tensin/setup-cygwin@v3
+      with:
+        platform: x64
+        packages: cmake python3
     - uses: actions/download-artifact@v2
       with:
         name: source
@@ -77,7 +82,7 @@ jobs:
     - name: build
       env:
         PYTHON: python
-        DIAGNOSTIC: 1 
+        DIAGNOSTIC: 1
       run: |
         $env:PATH = "${{ steps.install_erlang.outputs.erlpath }}\bin;$env:PATH"
 

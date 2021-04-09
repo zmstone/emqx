@@ -89,21 +89,21 @@ job_matrix() ->
      [?JOB_IPV4, ?JOB_IPV6]].
 
 init_per_job(Job) ->
-    proc_lib:spawn(fun() -> start_mysql_dep_container(Job) end ).
+    start_mysql_dep_container(Job).
 
 start_mysql_dep_container(#ct_job{name=Name, vectors=[VSN,Connection,IPv], index=Index} = Job) ->
     DEnv = docker_env(Name, VSN, Index),
+    io:format("~n DEnv : ~p ", [ DEnv ] ),
     File = docker_compose_file(Connection),
     JobName = binary_to_list(Name),
-    server_env(JobName, IPv, Index),
-    JobName = binary_to_list(Name),
     DockerRes = emqx_ct_helpers_docker:compose(File, JobName, "mysql_server", "", DEnv),
+    server_env(JobName, IPv, Index),
     io:format("~n Job :~p DockerRes : ~p ", [Job, DockerRes]).
 
 end_per_job(#ct_job{ name = Name }, _Config) ->
     JobName = binary_to_list(Name),
-    emqx_ct_helpers_docker:force_remove(JobName, true).
-
+%%    emqx_ct_helpers_docker:force_remove(JobName, true).
+    ok.
 job_options(#ct_job{ vectors = [_VSN, tls, _IPv], index = Index}) ->
     AllJobsEnv = all_jobs_env(Index),
     {ok, CaPath} = data_file("ca.pem"),
@@ -336,11 +336,18 @@ reload(Config) when is_list(Config) ->
 %% =================================================================================================
 
 server_env(ContainerName, IPv, Index) ->
-    {ok, SERVER_IP} = emqx_ct_helpers_jobs:container_ip(ContainerName, IPv),
-    Port = ensure_port(Index, 3306),
-    PortStr = integer_to_list(Port),
-    Server = SERVER_IP ++ ":" ++ PortStr,
-    os:set_env_var( "EMQX_AUTH__MYSQL__SERVER", Server ).
+    try {ok, SERVER_IP} = emqx_ct_helpers_jobs:container_ip(ContainerName, IPv),
+        Port = ensure_port(Index, 3306),
+        PortStr = integer_to_list(Port),
+        Server = SERVER_IP ++ ":" ++ PortStr,
+        io:format("~n Server : ~p ", [ Server ] ),
+        os:set_env_var( "EMQX_AUTH__MYSQL__SERVER", Server )
+    catch
+        T:E:S  ->
+            io:format("~n T:~p", [T]),
+            io:format("~n E:~p", [E]),
+            io:format("~n S:~p", [S])
+    end.
 
 all_jobs_env(Index) ->
     [{"EMQX_LISTENER__TCP__INTERNAL", port(Index, 1983)},

@@ -45,7 +45,17 @@ is_running() -> is_pid(whereis(?TERMINATOR)).
 
 %% @doc Send a signal to activate the terminator.
 graceful() ->
-    ?TERMINATOR ! ?DO_IT,
+    try
+        _ = erlang:send(?TERMINATOR, ?DO_IT)
+    catch
+        _ : _ ->
+            %% failed to notify terminator, probably due to not started yet
+            %% or node is going down, either case, the caller
+            %% should issue a shutdown to be sure
+            %% NOTE: not exit_loop here because we do not want to
+            %% block erl_signal_server
+            init:stop()
+    end,
     ok.
 
 %% @doc Shutdown the Erlang VM and wait until the terminator dies or the VM dies.

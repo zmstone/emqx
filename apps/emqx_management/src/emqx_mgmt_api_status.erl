@@ -21,6 +21,8 @@
 
 -export([running_status/2]).
 
+-include_lib("emqx/include/logger.hrl").
+
 api_spec() ->
     {[status_api()], []}.
 
@@ -34,14 +36,17 @@ status_api() ->
     {Path, Metadata, running_status}.
 
 running_status(get, _Request) ->
-    {InternalStatus, _ProvidedStatus} = init:get_status(),
+    {Status, Provided} = init:get_status(),
+    ?SLOG(debug, #{msg => "init_progress", status => Status, provided => Provided}),
     AppStatus =
         case lists:keysearch(emqx, 1, application:which_applications()) of
             false         -> not_running;
             {value, _Val} -> running
         end,
-    Status = io_lib:format("Node ~s is ~s~nemqx is ~s", [node(), InternalStatus, AppStatus]),
-    Body = list_to_binary(Status),
-    {200, #{<<"content-type">> => <<"text/plain">>}, Body}.
-
-
+    Body = io_lib:format("Node ~s status: ~s~n"
+                         "Application status: ~s~n", [node(), Status, AppStatus]),
+    HttpCode = case Status =:= started andalso AppStatus =:= running of
+                   true -> 200;
+                   false -> 503
+               end,
+    {HttpCode, #{<<"content-type">> => <<"text/plain">>}, iolist_to_binary(Body)}.

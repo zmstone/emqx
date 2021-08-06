@@ -29,6 +29,19 @@ emqx_prepare(){
     pip3 install pytest
 }
 
+wait_for_emqx() {
+    local probs=0
+    while ! curl -f -s http://localhost:8081/api/v5/status do
+        probs=$((probs+1))
+        if [ $probs -ge 10 ]; then
+            echo "failed_to_start_emqx_after $probs probs"
+            curl -f -v http://localhost:8081/api/v5/status
+            exit 1
+        fi
+        sleep 10
+    done
+}
+
 emqx_test(){
     cd "${PACKAGE_PATH}"
 
@@ -48,16 +61,7 @@ emqx_test(){
                     cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
                     exit 1
                 fi
-                IDLE_TIME=0
-                while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
-                    if [ $IDLE_TIME -gt 10 ]
-                    then
-                        echo "emqx running error"
-                        exit 1
-                    fi
-                    sleep 10
-                    IDLE_TIME=$((IDLE_TIME+1))
-                done
+                wait_for_emqx
                 pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
                 "${PACKAGE_PATH}"/emqx/bin/emqx stop
                 echo "running ${packagename} stop"
@@ -137,16 +141,7 @@ EOF
         cat /var/log/emqx/emqx.log.1 || true
         exit 1
     fi
-    IDLE_TIME=0
-    while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
-        if [ $IDLE_TIME -gt 10 ]
-        then
-            echo "emqx running error"
-            exit 1
-        fi
-        sleep 10
-        IDLE_TIME=$((IDLE_TIME+1))
-    done
+    wait_for_emqx
     pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
     # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
     emqx stop || kill "$(ps -ef | grep -E '\-progname\s.+emqx\s' |awk '{print $2}')"
@@ -158,16 +153,7 @@ EOF
             cat /var/log/emqx/emqx.log.1 || true
             exit 1
         fi
-        IDLE_TIME=0
-        while ! curl http://localhost:8081/api/v5/status >/dev/null 2>&1; do
-            if [ $IDLE_TIME -gt 10 ]
-            then
-                echo "emqx service error"
-                exit 1
-            fi
-            sleep 10
-            IDLE_TIME=$((IDLE_TIME+1))
-        done
+        wait_for_emqx
         service emqx stop
     fi
 }

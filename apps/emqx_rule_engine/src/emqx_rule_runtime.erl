@@ -237,6 +237,8 @@ handle_output(OutId, Selected, Envs) ->
     try
         do_handle_output(OutId, Selected, Envs)
     catch
+        throw: Reason when is_map(Reason) ->
+            ?SLOG(error, Reason#{msg => "output_failed", output => OutId});
         Err:Reason:ST ->
             ?SLOG(error, #{msg => "output_failed",
                            output => OutId,
@@ -247,7 +249,7 @@ handle_output(OutId, Selected, Envs) ->
     end.
 
 do_handle_output(#{type := bridge, target := ChannelId}, Selected, _Envs) ->
-    ?SLOG(debug, #{msg => "output to bridge", channel_id => ChannelId}),
+    ?SLOG(debug, #{msg => "output_to_mqtt_bridge", channel_id => ChannelId}),
     emqx_bridge:send_message(ChannelId, Selected);
 do_handle_output(#{type := func, target := Func} = Out, Selected, Envs) ->
     erlang:apply(Func, [Selected, Envs, maps:get(args, Out, #{})]);
@@ -259,13 +261,15 @@ do_handle_output(#{type := builtin, target := Output} = Out, Selected, Envs)
     try binary_to_existing_atom(Output) of
         Func -> handle_builtin_output(Func, Selected, Envs, maps:get(args, Out, #{}))
     catch
-        error:badarg -> error(not_found)
+        error:badarg -> throw(#{reason => no_such_builtin_output, function => Output})
     end.
 
+%% builtin outputs are a set of functions exported from emqx_rule_outputs
+%% module.
 handle_builtin_output(Func, Selected, Envs, Args) ->
     case erlang:function_exported(emqx_rule_outputs, Func, 3) of
         true -> erlang:apply(emqx_rule_outputs, Func, [Selected, Envs, Args]);
-        false -> error(not_found)
+        false -> throw(#{reason => no_such_builtin_output, function => Func})
     end.
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->

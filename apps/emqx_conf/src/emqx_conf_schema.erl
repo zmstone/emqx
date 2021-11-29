@@ -62,6 +62,10 @@
 namespace() -> undefined.
 
 roots() ->
+    case persistent_term:get(emqx_authentication_schema_module, undefined) of
+        undefined -> persistent_term:put(emqx_authentication_schema_module, emqx_authn_schema);
+        _ -> ok
+    end,
     %% authorization configs are merged in THIS schema's "authorization" fields
     lists:keydelete("authorization", 1, emqx_schema:roots(high)) ++
     [ {"node",

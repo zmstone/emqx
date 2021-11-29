@@ -27,4 +27,6 @@
 
 -define(AUTH_SHARD, emqx_authn_shard).
 
+-define(CONF_NS, "authn").
+
 -endif.

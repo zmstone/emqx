@@ -1438,7 +1438,11 @@ str(S) when is_list(S) ->
     S.
 
 authentication(Desc) ->
-    #{ type => hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())]))
+    Default = hoconsc:lazy(hoconsc:union([typerefl:map(), hoconsc:array(typerefl:map())])),
+    #{ type => case persistent_term:get(emqx_authentication_schema_module, undefined) of
+                   undefined -> Default;
+                   Module -> Module:root_type()
+               end
      , desc => iolist_to_binary([Desc, "<br>", """
 Authentication can be one single authenticator instance or a chain of authenticators as an array.
 When authenticating a login (username, client ID, etc.) the authenticators are checked

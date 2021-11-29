@@ -144,7 +144,7 @@ The client just sends its PUBLISH messages to a GW"
            , desc =>
 "The Pre-defined topic ids and topic names.<br>
 A 'pre-defined' topic id is a topic id whose mapping to a topic name
-is known in advance by both the client’s application and the gateway"
+is known in advance by both the client's application and the gateway"
            })}
     , {listeners, sc(ref(udp_listeners))}
     ] ++ gateway_common_options();
@@ -408,29 +408,13 @@ fields(dtls_opts) ->
          }, false).
 
 authentication() ->
-    sc(hoconsc:union(
-         [ hoconsc:ref(emqx_authn_mnesia, config)
-         , hoconsc:ref(emqx_authn_mysql, config)
-         , hoconsc:ref(emqx_authn_pgsql, config)
-         , hoconsc:ref(emqx_authn_mongodb, standalone)
-         , hoconsc:ref(emqx_authn_mongodb, 'replica-set')
-         , hoconsc:ref(emqx_authn_mongodb, 'sharded-cluster')
-         , hoconsc:ref(emqx_authn_redis, standalone)
-         , hoconsc:ref(emqx_authn_redis, cluster)
-         , hoconsc:ref(emqx_authn_redis, sentinel)
-         , hoconsc:ref(emqx_authn_http, get)
-         , hoconsc:ref(emqx_authn_http, post)
-         , hoconsc:ref(emqx_authn_jwt, 'hmac-based')
-         , hoconsc:ref(emqx_authn_jwt, 'public-key')
-         , hoconsc:ref(emqx_authn_jwt, 'jwks')
-         , hoconsc:ref(emqx_enhanced_authn_scram_mnesia, config)
-         ]),
-         #{ nullable => {true, recursively}
-          , desc =>
+    sc(emqx_authn_schema:authenticator_type(),
+       #{ nullable => {true, recursively}
+        , desc =>
 """Default authentication configs for all of the gateway listeners.<br>
 For per-listener overrides see <code>authentication</code>
 in listener configs"""
-          }).
+        }).
 
 gateway_common_options() ->
     [ {enable,

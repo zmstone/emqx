@@ -534,7 +534,6 @@ defmodule EMQXUmbrella.MixProject do
       emqx_description: emqx_description(release_type, edition_type),
       emqx_schema_mod: emqx_schema_mod(edition_type),
       emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
-      disable_entrerprise_conf: disable_entrerprise_conf(edition_type),
       built_on_arch: built_on(),
       is_elixir: "yes"
     ]
@@ -563,7 +562,6 @@ defmodule EMQXUmbrella.MixProject do
       built_on_arch: built_on(),
       emqx_schema_mod: emqx_schema_mod(edition_type),
       emqx_machine_boot_apps: emqx_machine_boot_app_list(edition_type),
-      disable_entrerprise_conf: disable_entrerprise_conf(edition_type),
       is_elixir: "yes"
     ]
   end
@@ -583,9 +581,6 @@ defmodule EMQXUmbrella.MixProject do
 
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_conf_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
-
-  defp disable_entrerprise_conf(:enterprise), do: ""
-  defp disable_entrerprise_conf(:community), do: "## "
 
   defp bcrypt_dep() do
     if enable_bcrypt?(),

@@ -239,12 +239,10 @@ overlay_vars_rel(RelType) ->
 
 overlay_vars_edition(ce) ->
     [ {emqx_schema_mod, emqx_conf_schema}
-    , {disable_entrerprise_conf, "## "}
     , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ce)}
     ];
 overlay_vars_edition(ee) ->
     [ {emqx_schema_mod, emqx_enterprise_conf_schema}
-    , {disable_entrerprise_conf, ""}
     , {emqx_machine_boot_apps, emqx_machine_boot_app_list(ee)}
     ].
 

@@ -14,10 +14,7 @@ main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),
 
     Cfgs = get_all_cfgs("apps/"),
-    Conf = [merge(BaseConf, Cfgs),
-            io_lib:nl(),
-            "{{ disable_entrerprise_conf }}include emqx_enterprise.conf",
-            io_lib:nl()],
+    Conf = [merge(BaseConf, Cfgs), io_lib:nl()],
     ok = file:write_file("apps/emqx_conf/etc/emqx.conf.all", Conf),
 
     EnterpriseCfgs = get_all_cfgs("lib-ee/"),

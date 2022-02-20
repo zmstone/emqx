@@ -116,23 +116,30 @@ make_zip() {
     # build the tarball again to ensure relup is included
     make_rel
 
-    tard="/tmp/emqx_untar_${PKG_VSN}"
+    tard="/tmp/emqx_untar_${PKG_VSN}/${PROFILE}"
     rm -rf "${tard}"
-    mkdir -p "${tard}/emqx"
+    mkdir -p "${tard}"
     local relpath="_build/${PROFILE}/rel/emqx"
     local pkgpath="_packages/${PROFILE}"
     mkdir -p "${pkgpath}"
-    local tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
+    local tarball_name="emqx-${PKG_VSN}.tar.gz"
+    local tarball="${relpath}/${tarball_name}"
     if [ ! -f "$tarball" ]; then
         log "ERROR: $tarball is not found"
     fi
     local zipball
-    zipball="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
-    tar zxf "${tarball}" -C "${tard}/emqx"
+    zipball="$(pwd)/${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
+    cp "$tarball" "${tard}/${tarball_name}"
+    cd "${tard}"
+    ## can not use tar -C because of windows
+    tar zxf "${tarball_name}"
+    rm "${tard}/${tarball_name}"
     ## try to be portable for zip packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
-    cp_dyn_libs "${tard}/emqx"
-    (cd "${tard}" && zip -qr - emqx) > "${zipball}"
+    cp_dyn_libs "${tard}"
+    cd "${tard}/.."
+    zip -qr - emqx > "${zipball}"
+    log "Zip package successfully created: ${zipball}"
 }
 
 ## This function builds the default docker image based on alpine:3.14 (by default)

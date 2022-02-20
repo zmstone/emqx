@@ -67,7 +67,7 @@ make_rel() {
 make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
-    mkdir -p "$lib_dir" "$releases_dir"
+    mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
         while read -r zip; do

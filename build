@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-PROFILE="$1"
+export PROFILE="$1"
 ARTIFACT="$2"
 
 # ensure dir
@@ -16,20 +16,6 @@ PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
 SYSTEM="$(./scripts/get-distro.sh)"
-
-ARCH="$(uname -m)"
-case "$ARCH" in
-    x86_64)
-        ARCH='amd64'
-        ;;
-    aarch64)
-        ARCH='arm64'
-        ;;
-    arm*)
-        ARCH=arm
-        ;;
-esac
-export ARCH
 
 ##
 ## Support RPM and Debian based linux systems
@@ -44,6 +30,28 @@ if [ "$(uname -s)" = 'Linux' ]; then
             ;;
     esac
 fi
+
+if [ "${SYSTEM}" = 'windows' ]; then
+    # windows does not like the find
+    FIND="/usr/bin/find"
+else
+    FIND='find'
+fi
+
+UNAME="$(uname -m)"
+case "$UNAME" in
+    x86_64)
+        ARCH='amd64'
+        ;;
+    aarch64)
+        ARCH='arm64'
+        ;;
+    arm*)
+        ARCH=arm
+        ;;
+esac
+# used in -pkg Makefile:s
+export ARCH
 
 log() {
     local msg="$1"
@@ -60,7 +68,8 @@ make_rel() {
 make_relup() {
     local lib_dir="_build/$PROFILE/rel/emqx/lib"
     local releases_dir="_build/$PROFILE/rel/emqx/releases"
-    mkdir -p "$lib_dir" "$releases_dir"
+    local name_pattern="$(./scripts/get-pkg-name.sh 'vsn_matcher')"
+    mkdir -p "$lib_dir" "$releases_dir" '_upgrade_base'
     local releases=()
     if [ -d "$releases_dir" ]; then
         while read -r zip; do
@@ -76,7 +85,7 @@ make_relup() {
                 rm -rf "$tmp_dir"
             fi
             releases+=( "$base_vsn" )
-        done < <(find _upgrade_base -maxdepth 1 -name "${PROFILE}-*-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip" -type f)
+        done < <("$FIND" _upgrade_base -maxdepth 1 -name "${name_pattern}.zip" -type f)
     fi
     if [ ${#releases[@]} -eq 0 ]; then
         log "No upgrade base found, relup ignored"
@@ -87,6 +96,8 @@ make_relup() {
     ./rebar3 as "$PROFILE" relup --relname emqx --relvsn "${PKG_VSN}"
 }
 
+## try to be portable for zip packages.
+## for DEB and RPM packages the dependencies are resoved by yum and apt
 cp_dyn_libs() {
     local rel_dir="$1"
     local target_dir="${rel_dir}/dynlibs"
@@ -96,11 +107,30 @@ cp_dyn_libs() {
     mkdir -p "$target_dir"
     while read -r so_file; do
         cp -L "$so_file" "$target_dir/"
-    done < <(find "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
+    done < <("$FIND" "$rel_dir" -type f \( -name "*.so*" -o -name "beam.smp" \) -print0 \
         | xargs -0 ldd \
         | grep -E '(libcrypto)|(libtinfo)' \
         | awk '{print $3}' \
         | sort -u)
+}
+
+
+# cannot do tar -C on windows
+# e.g. tar zxf "${tarball}" -C "${tard}/emqx"
+# so we need to copy the file over, extract, and delete
+untar() {
+    local src_tar="$1"
+    local dest_dir="$2"
+    local tar_name="$(basename ${src_tar})"
+    if [ ! -f "${src_tar}" ]; then
+        log "ERROR: ${src_tar} is not found"
+        exit 1
+    fi
+    cp "${src_tar}" "${dest_dir}/"
+    pushd "${dest_dir}" >/dev/null
+    tar zxf "${tar_name}"
+    rm -f "${tar_name}"
+    popd >/dev/null
 }
 
 ## make_zip turns .tar.gz into a .zip with a slightly different name.
@@ -108,24 +138,35 @@ cp_dyn_libs() {
 make_zip() {
     # build the tarball again to ensure relup is included
     make_rel
-
-    tard="/tmp/emqx_untar_${PKG_VSN}"
-    rm -rf "${tard}"
+    # use relative path because abs path is tricky in windows
+    tard="tmp/zip-wd-${PKG_VSN}"
+    rm -rf "${tard}/emqx"
     mkdir -p "${tard}/emqx"
     local relpath="_build/${PROFILE}/rel/emqx"
     local pkgpath="_packages/${PROFILE}"
+    local pkgname="$(./scripts/get-pkg-name.sh).zip"
     mkdir -p "${pkgpath}"
-    local tarball="${relpath}/emqx-${PKG_VSN}.tar.gz"
-    if [ ! -f "$tarball" ]; then
-        log "ERROR: $tarball is not found"
-    fi
-    local zipball
-    zipball="${pkgpath}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
-    tar zxf "${tarball}" -C "${tard}/emqx"
-    ## try to be portable for zip packages.
-    ## for DEB and RPM packages the dependencies are resoved by yum and apt
+    local tarname="emqx-${PKG_VSN}.tar.gz"
+    local tarball="${relpath}/${tarname}"
+    local target_zip="${pkgpath}/${pkgname}"
+    untar "${tarball}" "${tard}/emqx"
     cp_dyn_libs "${tard}/emqx"
-    (cd "${tard}" && zip -qr - emqx) > "${zipball}"
+    pushd "${tard}" >/dev/null
+    if [ $SYSTEM = 'windows' ]; then
+        7z a "${pkgname}" emqx
+    else
+        zip -qr "${pkgname}" emqx
+    fi
+    popd >/dev/null
+    mv "${tard}/${pkgname}" "${target_zip}"
+    # sha256sum may not be available on macos
+    if [ "$SYSTEM" = 'macos' ]; then
+        openssl dgst -sha256 "${target_zip}" | cut -d ' ' -f 2  > ${target_zip}.sha256
+    else
+        sha256sum "${target_zip}" | head -c 64 > ${target_zip}.sha256
+    fi
+    log "Zip package successfully created: ${target_zip}"
+    log "Zip package sha256sum: $(cat ${target_zip}.sha256)"
 }
 
 ## This function builds the default docker image based on alpine:3.14 (by default)
@@ -170,7 +211,7 @@ make_docker_testing() {
     fi
     EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-emqx/$PROFILE:${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}}"
     local defaultzip
-    defaultzip="_packages/${PROFILE}/${PROFILE}-${PKG_VSN}-otp${OTP_VSN}-${SYSTEM}-${ARCH}.zip"
+    defaultzip="_packages/${PROFILE}/$(scripts/get-pkg-name.sh).zip"
     local zip="${EMQX_ZIP_PACKAGE:-$defaultzip}"
     if [ ! -f "$zip" ]; then
         log "ERROR: $zip not built?"
@@ -201,7 +242,7 @@ case "$ARTIFACT" in
             log "Skipped making deb/rpm package for $SYSTEM"
             exit 0
         fi
-        make -C "deploy/packages/${PKGERDIR}" clean
+        EMQX_REL="$(pwd)" make -C "deploy/packages/${PKGERDIR}" clean
         EMQX_REL="$(pwd)" EMQX_BUILD="${PROFILE}" SYSTEM="${SYSTEM}" make -C "deploy/packages/${PKGERDIR}"
         ;;
     docker)

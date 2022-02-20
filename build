@@ -138,7 +138,7 @@ make_zip() {
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
     cp_dyn_libs "${tard}"
     cd "${tard}/.."
-    zip -qr - emqx > "${zipball}"
+    zip -qr "${zipball}" emqx
     log "Zip package successfully created: ${zipball}"
 }
 

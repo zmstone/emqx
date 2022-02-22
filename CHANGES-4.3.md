@@ -12,6 +12,11 @@ File format:
 
 ## v4.3.13
 
+### Important changes
+
+* For docker image, /opt/emqx/etc has been removed from the VOLUME list
+  so to make it easier to re-build images on top using EMQX's image as base
+
 ### Enhancements
 
 * CLI `emqx_ctl pem_cache clean` to force purge x509 certificate cache,

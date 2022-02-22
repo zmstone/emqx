@@ -339,6 +339,22 @@ wait_for() {
     done
 }
 
+maybe_log_to_console() {
+    if [ -n "${EMQX_LOG__TO}" ]; then
+        ## ovrride is already set
+        return 0
+    fi
+    ## the config is set in file emqx.conf
+    if grep -qE '^log.to(\s)*=' "$RUNNER_ETC_DIR"/emqx.conf; then
+        return 0
+    fi
+    ## the config is set in file logger.conf (enterprise eidition)
+    if grep -qE '^log.to(\s)*=' "$RUNNER_ETC_DIR"/logger.conf; then
+        return 0
+    fi
+    export EMQX_LOG__TO='console'
+}
+
 # Use $CWD/etc/sys.config if exists
 if [ -z "$RELX_CONFIG_PATH" ]; then
     if [ -f "$RUNNER_ETC_DIR/sys.config" ]; then
@@ -649,7 +665,7 @@ case "$1" in
 
         # set before generate_config
         if [ "${_EMQX_START_MODE:-}" = '' ]; then
-            export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+            maybe_log_to_console
         fi
 
         #generate app.config and vm.args
@@ -688,7 +704,7 @@ case "$1" in
         # or other supervision services
 
         # set before generate_config
-        export EMQX_LOG__TO="${EMQX_LOG__TO:-console}"
+        maybe_log_to_console
 
         #generate app.config and vm.args
         generate_config

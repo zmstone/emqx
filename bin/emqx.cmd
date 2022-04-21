@@ -65,6 +65,9 @@
 @set HOCON_ENV_OVERRIDE_PREFIX=EMQX_
 @set node_type=-name
 @set schema_mod=emqx_conf_schema
+:: no advanced DB backend for Windows
+@set EMQX_DB__BACKEND=mnesia
+@set EMQX_DB__ROLE=core
 
 @set conf_path="%etc_dir%\emqx.conf"
 :: Extract node name from emqx.conf
@@ -212,8 +215,7 @@ cd /d "%rel_root_dir%"
 @echo off
 cd /d %rel_root_dir%
 @echo on
-@start "%rel_name% console" %werl% -mode embedded -boot "%boot_file_name%" %args%
-@echo emqx is started!
+%erl_exe% -mode embedded -boot "%boot_file_name%" %args%
 @goto :eof
 
 :: Ping the running node

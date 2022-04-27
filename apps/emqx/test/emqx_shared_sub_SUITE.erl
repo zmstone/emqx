@@ -38,7 +38,6 @@ all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
-    % net_kernel:start(['master']),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     Config.
@@ -515,7 +514,6 @@ stop_slave(Node) ->
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
     Host.
-%"127.0.0." ++ integer_to_list(rand:uniform(255)).
 
 ebin_path() ->
     string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").

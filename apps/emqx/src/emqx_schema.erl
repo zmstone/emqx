@@ -1213,15 +1213,7 @@ fields("shared_subscription_group") ->
             sc(
                 hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
                 #{
-                    desc =>
-                        "Dispatch strategy for shared subscription.<br/>\n"
-                        " - `random`: dispatch the message to a random selected subscriber\n"
-                        " - `round_robin`: select the subscribers in a round-robin manner\n"
-                        " - `sticky`: always use the last selected subscriber to dispatch,\n"
-                        "   until the subscriber disconnects.\n"
-                        " - `hash`: select the subscribers by the hash of `clientIds`\n"
-                        " - `local`: send to a random local subscriber. If local\n"
-                        "   subscriber was not found, send to a random subscriber cluster-wide"
+                    desc => ?DESC(shared_subscription_group_strategy)
                 }
             )}
     ];

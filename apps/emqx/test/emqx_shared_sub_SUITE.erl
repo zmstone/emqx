@@ -288,8 +288,8 @@ test_two_messages(Strategy, Group) ->
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/foo/bar">>, 0}),
-    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, Topic/binary>>, 0}),
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId1, 0, Topic, <<"hello2">>),
@@ -384,8 +384,8 @@ t_local(_) ->
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/local_group/local_foo/bar">>, 0}),
-    emqtt:subscribe(ConnPid2, {<<"$share/local_group/local_foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/local_group/", Topic/binary>>, 0}),
 
     ct:sleep(100),
 
@@ -426,7 +426,7 @@ t_local_fallback(_) ->
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/local_group/local_foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
 
     emqx:publish(Message1),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),

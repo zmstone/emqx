@@ -162,8 +162,7 @@ find(KeyPath) ->
     atom_conf_path(
         KeyPath,
         fun(AtomKeyPath) -> emqx_map_lib:deep_find(AtomKeyPath, get_root(KeyPath)) end,
-        fun() -> {not_found, KeyPath} end,
-        safe
+        fun() -> {not_found, KeyPath} end
     ).
 
 -spec find_raw(emqx_map_lib:config_key_path()) ->
@@ -237,7 +236,7 @@ put(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
         emqx_map_lib:deep_put(Path, Map, Value)
     end,
-    do_put(?CONF, safe, Putter, KeyPath, Config).
+    do_put(?CONF, Putter, KeyPath, Config).
 
 %% Puts value into configuration even if path doesn't exist
 %% For paths of non-existing atoms use force_put(KeyPath, Config, unsafe)
@@ -246,11 +245,15 @@ force_put(KeyPath, Config) ->
     force_put(KeyPath, Config, safe).
 
 -spec force_put(emqx_map_lib:config_key_path(), term(), safe | unsafe) -> ok.
-force_put(KeyPath, Config, Safety) ->
+force_put(KeyPath0, Config, Safety) ->
+    KeyPath = case Safety of
+                  safe -> KeyPath0;
+                  unsafe -> [atom(Key) || Key <- KeyPath0]
+              end,
     Putter = fun(Path, Map, Value) ->
         emqx_map_lib:deep_force_put(Path, Map, Value)
     end,
-    do_put(?CONF, Safety, Putter, KeyPath, Config).
+    do_put(?CONF, Putter, KeyPath, Config).
 
 -spec get_default_value(emqx_map_lib:config_key_path()) -> {ok, term()} | {error, term()}.
 get_default_value([RootName | _] = KeyPath) ->
@@ -292,7 +295,7 @@ put_raw(KeyPath, Config) ->
     Putter = fun(Path, Map, Value) ->
         emqx_map_lib:deep_force_put(Path, Map, Value)
     end,
-    do_put(?RAW_CONF, safe, Putter, KeyPath, Config).
+    do_put(?RAW_CONF, Putter, KeyPath, Config).
 
 %%============================================================================
 %% Load/Update configs From/To files
@@ -552,37 +555,35 @@ do_get(Type, [RootName | KeyPath], Default) ->
     RootV = persistent_term:get(?PERSIS_KEY(Type, bin(RootName)), #{}),
     do_deep_get(Type, KeyPath, RootV, Default).
 
-do_put(Type, Safety, Putter, [], DeepValue) ->
+do_put(Type, Putter, [], DeepValue) ->
     maps:fold(
         fun(RootName, Value, _Res) ->
-            do_put(Type, Safety, Putter, [RootName], Value)
+            do_put(Type, Putter, [RootName], Value)
         end,
         ok,
         DeepValue
     );
-do_put(Type, Safety, Putter, [RootName | KeyPath], DeepValue) ->
+do_put(Type, Putter, [RootName | KeyPath], DeepValue) ->
     OldValue = do_get(Type, [RootName], #{}),
-    NewValue = do_deep_put(Type, Safety, Putter, KeyPath, OldValue, DeepValue),
+    NewValue = do_deep_put(Type, Putter, KeyPath, OldValue, DeepValue),
     persistent_term:put(?PERSIS_KEY(Type, bin(RootName)), NewValue).
 
 do_deep_get(?CONF, KeyPath, Map, Default) ->
     atom_conf_path(
         KeyPath,
         fun(AtomKeyPath) -> emqx_map_lib:deep_get(AtomKeyPath, Map, Default) end,
-        fun() -> Default end,
-        safe
+        fun() -> Default end
     );
 do_deep_get(?RAW_CONF, KeyPath, Map, Default) ->
     emqx_map_lib:deep_get([bin(Key) || Key <- KeyPath], Map, Default).
 
-do_deep_put(?CONF, Safety, Putter, KeyPath, Map, Value) ->
+do_deep_put(?CONF, Putter, KeyPath, Map, Value) ->
     atom_conf_path(
         KeyPath,
         fun(AtomKeyPath) -> Putter(AtomKeyPath, Map, Value) end,
-        fun() -> error({not_found, KeyPath}) end,
-        Safety
+        fun() -> error({not_found, KeyPath}) end
     );
-do_deep_put(?RAW_CONF, _Safety, Putter, KeyPath, Map, Value) ->
+do_deep_put(?RAW_CONF, Putter, KeyPath, Map, Value) ->
     Putter([bin(Key) || Key <- KeyPath], Map, Value).
 
 root_names_from_conf(RawConf) ->
@@ -612,14 +613,8 @@ conf_key(?CONF, RootName) ->
 conf_key(?RAW_CONF, RootName) ->
     bin(RootName).
 
-atom_conf_path(Path, ExpFun, ExpOnFailFun, unsafe) ->
+atom_conf_path(Path, ExpFun, ExpOnFailFun) ->
     try [unsafe_atom(Key) || Key <- Path] of
-        AtomKeyPath -> ExpFun(AtomKeyPath)
-    catch
-        error:badarg -> ExpOnFailFun()
-    end;
-atom_conf_path(Path, ExpFun, ExpOnFailFun, safe) ->
-    try [atom(Key) || Key <- Path] of
         AtomKeyPath -> ExpFun(AtomKeyPath)
     catch
         error:badarg -> ExpOnFailFun()

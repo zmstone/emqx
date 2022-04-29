@@ -1204,7 +1204,7 @@ fields("broker") ->
         {"shared_subscription_group",
             sc(
                 map(name, ref("shared_subscription_group")),
-                #{}
+                #{desc => ?DESC(shared_subscription_group_strategy)}
             )}
     ];
 fields("shared_subscription_group") ->
@@ -1213,7 +1213,7 @@ fields("shared_subscription_group") ->
             sc(
                 hoconsc:enum([random, round_robin, sticky, local, hash_topic, hash_clientid]),
                 #{
-                    desc => ?DESC(shared_subscription_group_strategy)
+                    desc => ?DESC(shared_subscription_strategy_enum)
                 }
             )}
     ];

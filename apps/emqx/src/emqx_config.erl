@@ -248,7 +248,7 @@ force_put(KeyPath, Config) ->
 force_put(KeyPath0, Config, Safety) ->
     KeyPath = case Safety of
                   safe -> KeyPath0;
-                  unsafe -> [atom(Key) || Key <- KeyPath0]
+                  unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
               end,
     Putter = fun(Path, Map, Value) ->
         emqx_map_lib:deep_force_put(Path, Map, Value)

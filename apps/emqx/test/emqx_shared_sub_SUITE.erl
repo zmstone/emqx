@@ -288,8 +288,8 @@ test_two_messages(Strategy, Group) ->
     {ok, _} = emqtt:connect(ConnPid1),
     {ok, _} = emqtt:connect(ConnPid2),
 
-    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, Topic/binary>>, 0}),
-    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/", Group/binary, "/", Topic/binary>>, 0}),
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId1, 0, Topic, <<"hello2">>),

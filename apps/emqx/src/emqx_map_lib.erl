@@ -74,6 +74,9 @@ deep_put([Key | KeyPath], Map, Data) ->
     SubMap = maps:get(Key, Map, #{}),
     Map#{Key => deep_put(KeyPath, SubMap, Data)}.
 
+%% Like deep_put, but ensures that the key path is present.
+%% If key path is not present in map, creates the keys, until it's present
+%% deep_force_put([x, y, z], #{a => 1}, 0) -> #{a => 1, x => #{y => #{z => 0}}}
 -spec deep_force_put(config_key_path(), map(), term()) -> map().
 deep_force_put([], _Map, Data) ->
     Data;

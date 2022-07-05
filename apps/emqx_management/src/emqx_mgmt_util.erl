@@ -49,17 +49,28 @@
 -define(MB, (1024 * 1024)).
 -define(GB, (1024 * 1024 * 1024)).
 
-kmg(Byte) when Byte > ?GB ->
+kmg(Byte) when Byte >= ?GB ->
     kmg(Byte / ?GB, "G");
-kmg(Byte) when Byte > ?MB ->
+kmg(Byte) when Byte >= ?MB ->
     kmg(Byte / ?MB, "M");
-kmg(Byte) when Byte > ?KB ->
+kmg(Byte) when Byte >= ?KB ->
     kmg(Byte / ?KB, "K");
 kmg(Byte) ->
     integer_to_binary(Byte).
 
 kmg(F, S) ->
-    iolist_to_binary(io_lib:format("~.2f~ts", [F, S])).
+    NumStr = lists:flatten(io_lib:format("~.2f", [F])),
+    iolist_to_binary([delete_trailing_zeros(NumStr), S]).
+
+delete_trailing_zeros(X) ->
+    lists:reverse(delete_trailing_zeros_loop(lists:reverse(X))).
+
+delete_trailing_zeros_loop([$. | T]) ->
+    T;
+delete_trailing_zeros_loop([$0 | T]) ->
+    delete_trailing_zeros_loop(T);
+delete_trailing_zeros_loop(X) ->
+    X.
 
 ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});

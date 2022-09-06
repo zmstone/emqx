@@ -261,7 +261,7 @@ fields("egress_remote") ->
             mk(
                 binary(),
                 #{
-                    required => true,
+                    default => <<"${payload}">>,
                     desc => ?DESC("payload")
                 }
             )}

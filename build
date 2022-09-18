@@ -141,6 +141,7 @@ make_rel() {
     make_docs
     # now assemble the release tar
     ./rebar3 as "$PROFILE" tar
+    ./rebar3 as "$PROFILE" sbom -o bom.xml
     assert_no_compile_time_only_deps
 }
 

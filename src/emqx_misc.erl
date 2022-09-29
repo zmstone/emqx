@@ -466,6 +466,41 @@ maybe_mute_rpc_log(Node) ->
             ok
     end.
 
+is_sensitive_key(token) -> true;
+is_sensitive_key("token") -> true;
+is_sensitive_key(<<"token">>) -> true;
+is_sensitive_key(password) -> true;
+is_sensitive_key("password") -> true;
+is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key(secret) -> true;
+is_sensitive_key("secret") -> true;
+is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(passcode) -> true;
+is_sensitive_key("passcode") -> true;
+is_sensitive_key(<<"passcode">>) -> true;
+is_sensitive_key(passphrase) -> true;
+is_sensitive_key("passphrase") -> true;
+is_sensitive_key(<<"passphrase">>) -> true;
+is_sensitive_key(_) -> false.
+
+redact(L) when is_list(L) ->
+    lists:map(fun redact/1, L);
+redact(M) when is_map(L) ->
+    maps:map(fun(K, V) ->
+                     redact(K, V)
+             end, M).
+
+redact(K, V) ->
+    case is_sensitive_key(K) of
+        true ->
+            redact_v(V);
+        false ->
+            redact(V)
+    end.
+
+redact_v(V) when is_binary(V) -> <<"******">>;
+redact_v(_V) -> "*****".
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -498,4 +533,11 @@ is_sane_id_test() ->
     ?assertMatch({error, _}, is_sane_id(list_to_binary(Bad))),
     ok.
 
+is_sensitive_key_test() ->
+    All = [token, password, secret, passcode, passphrase],
+    lists:foreach(fun(K) ->
+                          ?assert(is_sensitive_key(K),
+                          ?assert(is_sensitive_key(atom_to_list(K)),
+                          ?assert(is_sensitive_key(atom_to_binary(K))
+                  end, All).
 -endif.

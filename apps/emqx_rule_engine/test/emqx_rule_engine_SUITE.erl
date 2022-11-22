@@ -958,13 +958,12 @@ t_sqlselect_inject_props(_Config) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, #{}, <<"{\"x\":1}">>, [{qos, 0}]),
-    ct:sleep(100),
     receive
         {publish, #{topic := T, payload := Payload, properties := Props2}} ->
             ?assertEqual(Props, Props2),
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1}">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
     emqtt:stop(Client),
@@ -1080,13 +1079,12 @@ t_sqlselect_1(_Config) ->
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ct:sleep(200),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1,\"y\":2}">>, 0),
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1,\"y\":2}">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
 
@@ -1149,14 +1147,13 @@ t_sqlselect_3(_Config) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx0">>}, {username, <<"emqx0">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ct:sleep(200),
     {ok, Client1} = emqtt:start_link([{clientid, <<"c_emqx1">>}, {username, <<"emqx1">>}]),
     {ok, _} = emqtt:connect(Client1),
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"clientid=c_emqx1">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
 
@@ -1195,7 +1192,6 @@ t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
     {ok, Client1} = emqtt:start_link([{clientid, <<"sub-01">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     {ok, _, _} = emqtt:subscribe(Client1, <<"t2">>, 1),
-    ct:sleep(200),
     {ok, Client2} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client2),
     Props = user_properties(#{<<"mykey">> => <<"111111">>}),
@@ -1205,7 +1201,7 @@ t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
             ?assertEqual(Props1, Props),
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"clientid=pub-02">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
     emqtt:stop(Client2),
@@ -1232,7 +1228,6 @@ t_sqlselect_message_publish_event_keep_original_props_2(_Config) ->
     {ok, Client1} = emqtt:start_link([{clientid, <<"sub-01">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client1),
     {ok, _, _} = emqtt:subscribe(Client1, <<"t2">>, 1),
-    ct:sleep(200),
     {ok, Client2} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client2),
     Props = user_properties(#{<<"mykey">> => <<"222222222222">>}),
@@ -1242,7 +1237,7 @@ t_sqlselect_message_publish_event_keep_original_props_2(_Config) ->
             ?assertEqual(Props1, Props),
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"clientid=pub-02">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
     emqtt:stop(Client2),

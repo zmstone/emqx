@@ -65,10 +65,7 @@ fields("rule_info") ->
     ] ++ fields("rule_creation");
 %% TODO: we can delete this API if the Dashboard not depends on it
 fields("rule_events") ->
-    ETopics = [
-        binary_to_atom(emqx_rule_events:event_topic(E))
-     || E <- emqx_rule_events:event_names()
-    ],
+    ETopics = emqx_rule_events:event_topics(),
     [
         {"event", sc(hoconsc:enum(ETopics), #{desc => ?DESC("rs_event"), required => true})},
         {"title", sc(binary(), #{desc => ?DESC("rs_title"), example => "some title"})},

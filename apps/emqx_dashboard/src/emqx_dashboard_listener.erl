@@ -15,8 +15,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_dashboard_listener).
 
--include_lib("emqx/include/logger.hrl").
 -behaviour(emqx_config_handler).
+
+-include_lib("emqx/include/logger.hrl").
 
 %% API
 -export([add_handler/0, remove_handler/0]).
@@ -85,8 +86,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% generate dispatch is very slow.
 regenerate_minirest_dispatch() ->
+    %% TODO: check if it requires the desc cache here
     try
-        emqx_dashboard:init_i18n(),
         lists:foreach(
             fun(Listener) ->
                 minirest:update_dispatch(element(1, Listener))
@@ -103,8 +104,6 @@ regenerate_minirest_dispatch() ->
                 stacktrace => S
             }),
             retry
-    after
-        emqx_dashboard:clear_i18n()
     end.
 
 add_handler() ->

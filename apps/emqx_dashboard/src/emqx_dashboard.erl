@@ -16,22 +16,12 @@
 
 -module(emqx_dashboard).
 
--define(APP, ?MODULE).
-
 -export([
     start_listeners/0,
     start_listeners/1,
     stop_listeners/1,
     stop_listeners/0,
     list_listeners/0
-]).
-
--export([
-    init_i18n/2,
-    init_i18n/0,
-    get_i18n/0,
-    i18n_file/0,
-    clear_i18n/0
 ]).
 
 %% Authorization
@@ -129,24 +119,6 @@ stop_listeners(Listeners) ->
     ],
     ok.
 
-get_i18n() ->
-    application:get_env(emqx_dashboard, i18n).
-
-init_i18n(File, Lang) when is_atom(Lang) ->
-    init_i18n(File, atom_to_binary(Lang));
-init_i18n(File, Lang) when is_binary(Lang) ->
-    Cache = hocon_schema:new_desc_cache(File),
-    application:set_env(emqx_dashboard, i18n, #{lang => Lang, cache => Cache}).
-
-clear_i18n() ->
-    case application:get_env(emqx_dashboard, i18n) of
-        {ok, #{cache := Cache}} ->
-            hocon_schema:delete_desc_cache(Cache),
-            application:unset_env(emqx_dashboard, i18n);
-        undefined ->
-            ok
-    end.
-
 %%--------------------------------------------------------------------
 %% internal
 
@@ -186,11 +158,6 @@ ip_port(Opts) -> ip_port(maps:take(bind, Opts), Opts).
 ip_port(error, Opts) -> {Opts#{port => 18083}, 18083};
 ip_port({Port, Opts}, _) when is_integer(Port) -> {Opts#{port => Port}, Port};
 ip_port({{IP, Port}, Opts}, _) -> {Opts#{port => Port, ip => IP}, {IP, Port}}.
-
-init_i18n() ->
-    File = i18n_file(),
-    Lang = emqx_conf:get([dashboard, i18n_lang], en),
-    init_i18n(File, Lang).
 
 ranch_opts(Options) ->
     Keys = [
@@ -254,12 +221,6 @@ return_unauthorized(Code, Message) ->
                 <<"Basic Realm=\"minirest-server\"">>
         },
         #{code => Code, message => Message}}.
-
-i18n_file() ->
-    case application:get_env(emqx_dashboard, i18n_file) of
-        undefined -> filename:join([code:priv_dir(emqx_dashboard), "i18n.conf"]);
-        {ok, File} -> File
-    end.
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], #{}).

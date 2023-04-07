@@ -58,8 +58,8 @@ do_split(Path, Name, Lang, #{<<"desc">> := Desc} = D) ->
         Label = maps:get(<<"label">>, D, #{}),
         DescL = maps:get(Lang, Desc),
         LabelL = maps:get(Lang, Label, undefined),
-        [fmt(["  ", Name, ".desc: "], DescL),
-        fmt(["  ", Name, ".label: "], LabelL)
+        [fmt(["  ", Name, ".desc:\n"], DescL),
+        fmt(["  ", Name, ".label:\n"], LabelL)
         ]
     catch
         C : E : S->

@@ -55,12 +55,10 @@ init([]) ->
     {ok, undefined, {continue, regenerate_dispatch}}.
 
 handle_continue(regenerate_dispatch, _State) ->
-    NewState = regenerate_minirest_dispatch(),
-    {noreply, NewState, hibernate}.
+    %% initialize the swagger dispatches
+    ready = regenerate_minirest_dispatch(),
+    {noreply, ready, hibernate}.
 
-handle_call(is_ready, _From, retry) ->
-    NewState = regenerate_minirest_dispatch(),
-    {reply, NewState, NewState, hibernate};
 handle_call(is_ready, _From, State) ->
     {reply, State, State, hibernate};
 handle_call(_Request, _From, State) ->
@@ -84,27 +82,25 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% generate dispatch is very slow.
+%% generate dispatch is very slow, takes about 1s.
 regenerate_minirest_dispatch() ->
-    %% TODO: check if it requires the desc cache here
-    try
-        lists:foreach(
-            fun(Listener) ->
-                minirest:update_dispatch(element(1, Listener))
-            end,
-            emqx_dashboard:list_listeners()
-        ),
-        ready
-    catch
-        T:E:S ->
-            ?SLOG(error, #{
-                msg => "regenerate_minirest_dispatch_failed",
-                reason => E,
-                type => T,
-                stacktrace => S
-            }),
-            retry
-    end.
+    %% optvar:read waits for the var to be set
+    Names = emqx_dashboard:wait_for_listeners(),
+    {Time, ok} = timer:tc(fun() -> do_regenerate_minirest_dispatch(Names) end),
+    ?SLOG(info, #{
+        msg => "regenerate_minirest_dispatch",
+        elapsed => erlang:convert_time_unit(Time, microsecond, millisecond),
+        listeners => Names
+    }),
+    ready.
+
+do_regenerate_minirest_dispatch(Names) ->
+    lists:foreach(
+        fun(Name) ->
+            ok = minirest:update_dispatch(Name)
+        end,
+        Names
+    ).
 
 add_handler() ->
     Roots = emqx_dashboard_schema:roots(),

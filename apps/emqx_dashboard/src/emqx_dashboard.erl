@@ -21,7 +21,8 @@
     start_listeners/1,
     stop_listeners/1,
     stop_listeners/0,
-    list_listeners/0
+    list_listeners/0,
+    wait_for_listeners/0
 ]).
 
 %% Authorization
@@ -80,30 +81,34 @@ start_listeners(Listeners) ->
         dispatch => Dispatch,
         middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
     },
-    Res =
+    {OkListeners, ErrListeners} =
         lists:foldl(
-            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, Acc) ->
+            fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
                 Minirest = BaseMinirest#{protocol => Protocol, protocol_options => ProtoOpts},
                 case minirest:start(Name, RanchOptions, Minirest) of
                     {ok, _} ->
                         ?ULOG("Listener ~ts on ~ts started.~n", [
                             Name, emqx_listeners:format_bind(Bind)
                         ]),
-                        Acc;
+                        {[Name | OkAcc], ErrAcc};
                     {error, _Reason} ->
                         %% Don't record the reason because minirest already does(too much logs noise).
-                        [Name | Acc]
+                        {OkAcc, [Name | ErrAcc]}
                 end
             end,
-            [],
+            {[], []},
             listeners(Listeners)
         ),
-    case Res of
-        [] -> ok;
-        _ -> {error, Res}
+    case ErrListeners of
+        [] ->
+            optvar:set(emqx_dashboard_listeners_ready, OkListeners),
+            ok;
+        _ ->
+            {error, ErrListeners}
     end.
 
 stop_listeners(Listeners) ->
+    optvar:unset(emqx_dashboard_listeners_ready),
     [
         begin
             case minirest:stop(Name) of
@@ -118,6 +123,9 @@ stop_listeners(Listeners) ->
      || {Name, _, Port, _, _} <- listeners(Listeners)
     ],
     ok.
+
+wait_for_listeners() ->
+    optvar:read(emqx_dashboard_listeners_ready).
 
 %%--------------------------------------------------------------------
 %% internal

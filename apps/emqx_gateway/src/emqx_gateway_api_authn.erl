@@ -372,7 +372,7 @@ params_fuzzy_in_qs() ->
                 #{
                     in => query,
                     required => false,
-                    desc => ?DESC(is_superuser)
+                    desc => ?DESC(common, is_superuser)
                 }
             )}
     ].

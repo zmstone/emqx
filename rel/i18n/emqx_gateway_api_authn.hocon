@@ -24,9 +24,6 @@ get_user.desc:
 import_users.desc:
 """Import users into the gateway authenticator (only supports built_in_database)"""
 
-is_superuser.desc:
-"""Is superuser"""
-
 like_user_id.desc:
 """Fuzzy search using user ID (username or clientid), only supports search by substring."""
 

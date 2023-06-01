@@ -382,7 +382,7 @@ schema("/authentication/:id/users") ->
                 {is_superuser,
                     mk(boolean(), #{
                         in => query,
-                        desc => ?DESC(is_superuser),
+                        desc => ?DESC(common, is_superuser),
                         required => false
                     })}
             ],
@@ -428,7 +428,7 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
                 {is_superuser,
                     mk(boolean(), #{
                         in => query,
-                        desc => ?DESC(is_superuser),
+                        desc => ?DESC(common, is_superuser),
                         required => false
                     })}
             ],

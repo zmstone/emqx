@@ -1,0 +1,4 @@
+is_superuser.desc:
+"""Is superuser. Super users can can publish or subscriber all topics."""
+is_superuser.label:
+"""Is superuser"""

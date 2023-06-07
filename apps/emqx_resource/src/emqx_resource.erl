@@ -100,7 +100,10 @@
     call_health_check/3,
     %% stop the instance
     call_stop/3,
-    is_buffer_supported/1
+    %% TODO(now): delete this callback, implement query_mode instead
+    is_buffer_supported/1,
+    query_mode/1
+
 ]).
 
 %% list all the instances, id only.
@@ -132,7 +135,8 @@
     on_query_async/4,
     on_batch_query_async/4,
     on_get_status/2,
-    is_buffer_supported/0
+    is_buffer_supported/0,
+    query_mode/1
 ]).
 
 %% when calling emqx_resource:start/1
@@ -174,6 +178,9 @@
     | {resource_status(), resource_state(), term()}.
 
 -callback is_buffer_supported() -> boolean().
+
+-callback query_mode(Config :: term()) -> simple_sync | simple_async.
+                                               }
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -279,8 +286,19 @@ query(ResId, Request, Opts) ->
         {ok, _Group, #{query_mode := QM, mod := Module}} ->
             IsBufferSupported = is_buffer_supported(Module),
             case {IsBufferSupported, QM} of
+                {true, simple_async} ->
+                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+                    %% so the buffer worker does not need to lookup the cache again
+                    Opts1 = Opts#{is_buffer_supported => true},
+                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
+                {true, simple_sync} ->
+                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+                    %% so the buffer worker does not need to lookup the cache again
+                    emqx_resource_buffer_worker:simple_sync_query(ResId, Request);
                 {true, _} ->
-                    %% only Kafka producer so far
+                    %% TODO(now): delete is_buffer_supported callback,
+                    %% rewrite all connectors with is_buffer_supported returning true
+                    %% to implement query_mode/1 instead
                     Opts1 = Opts#{is_buffer_supported => true},
                     emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
                 {false, sync} ->

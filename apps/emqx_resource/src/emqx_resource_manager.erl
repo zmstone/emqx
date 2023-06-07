@@ -287,17 +287,20 @@ health_check(ResId) ->
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
-start_link(ResId, Group, ResourceType, Config, Opts) ->
+start_link(ResId, Group, ResourceType, Config, Opts0) ->
+    QueryMode = case erlang:function_exported(ResourceType, query_mode, 1) of
+                    true ->
+                        ResourceType:query_mode(Config);
+                    false ->
+                        maps:get(query_mode, Opts, sync)
+                   end,
+
     Data = #data{
         id = ResId,
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),
-        %% query_mode = dynamic | sync | async
-        %% TODO:
-        %%  dynamic mode is async mode when things are going well, but becomes sync mode
-        %%  if the resource worker is overloaded
-        query_mode = maps:get(query_mode, Opts, sync),
+        query_mode = QueryMode,
         config = Config,
         opts = Opts,
         state = undefined,

@@ -85,13 +85,13 @@
 %% Guards
 -define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
 
--define(cast_or_eval(Pid, Msg, Expr),
-    case Pid =:= self() of
-        true ->
+-define(cast_or_eval(PICK, Msg, Expr),
+    case {PICK, self()} of
+        {Self, Self} ->
             _ = Expr,
             ok;
-        false ->
-            cast(Pid, Msg)
+        {NotSelf, _Self} ->
+            cast(NotSelf, Msg)
     end
 ).
 

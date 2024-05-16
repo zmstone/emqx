@@ -1641,7 +1641,16 @@ get_client_attrs_init_config(Zone) ->
 maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
     Inits = get_client_attrs_init_config(Zone),
     UserProperty = get_user_property_as_map(ConnPkt),
-    {ok, initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty})}.
+    {ok,
+        initialize_client_attrs(Inits, ClientInfo#{
+            user_property => UserProperty,
+            peername => peername(ClientInfo)
+        })}.
+
+peername(#{peerhost := Host, peerport := Port}) ->
+    emqx_utils:ntoa({Host, Port});
+peername(_) ->
+    undefined.
 
 initialize_client_attrs(Inits, ClientInfo) ->
     lists:foldl(

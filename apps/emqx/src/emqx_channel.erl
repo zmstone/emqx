@@ -1582,22 +1582,22 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Enrich Client Info
 
-enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
+enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     Pipe = pipeline(
         [
             fun set_username/2,
             fun set_bridge_mode/2,
             fun maybe_username_as_clientid/2,
-            fun maybe_assign_clientid/2,
-            %% attr init should happen after clientid and username assign
-            fun maybe_set_client_initial_attrs/2
+            fun maybe_assign_clientid/2
         ],
         ConnPkt,
         ClientInfo
     ),
     case Pipe of
         {ok, NConnPkt, NClientInfo} ->
-            {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}};
+            %% attr init should happen after clientid and username assign
+            NClientInfo1 = maybe_set_client_initial_attrs(ConnPkt, NClientInfo, ConnInfo),
+            {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo1}};
         {error, ReasonCode, NClientInfo} ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
@@ -1645,10 +1645,11 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
 get_client_attrs_init_config(Zone) ->
     get_mqtt_conf(Zone, client_attrs_init, []).
 
-maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
+maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo, ConnInfo) ->
     Inits = get_client_attrs_init_config(Zone),
     UserProperty = get_user_property_as_map(ConnPkt),
-    {ok, initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty})}.
+    ClientInfo1 = maybe_add_cert(ClientInfo, ConnInfo, cert_der),
+    initialize_client_attrs(Inits, ClientInfo1#{user_property => UserProperty}).
 
 initialize_client_attrs(Inits, ClientInfo) ->
     lists:foldl(
@@ -1730,13 +1731,14 @@ count_flapping_event(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 %% Authenticate
 
 %% If peercert exists, add it as `cert_pem` credential field.
-maybe_add_cert(Map, #channel{conninfo = ConnInfo}) ->
-    maybe_add_cert(Map, ConnInfo);
-maybe_add_cert(Map, #{peercert := PeerCert}) when is_binary(PeerCert) ->
-    %% NOTE: it's raw binary at this point,
-    %% encoding to PEM (base64) is done lazy in emqx_authn_utils:render_var
-    Map#{cert_pem => PeerCert};
-maybe_add_cert(Map, _) ->
+maybe_add_cert(Map, #channel{conninfo = ConnInfo}, FieldName) ->
+    maybe_add_cert(Map, ConnInfo, FieldName);
+maybe_add_cert(Map, #{peercert := PeerCert}, FieldName) when is_binary(PeerCert) ->
+    %% NOTE: PeerCert is raw (der format) binary here.
+    %% For FieldName=cert_pem, base64 encoding is done lazy in emqx_authn_utils:render_var
+    %% For FieldName=cert_der, client_attr expression should encode or hash it
+    Map#{FieldName => PeerCert};
+maybe_add_cert(Map, _, _) ->
     Map.
 
 authenticate(
@@ -1759,14 +1761,14 @@ authenticate(
             auth_data => AuthData,
             auth_cache => AuthCache
         },
-    Credential = maybe_add_cert(Credential0, Channel),
+    Credential = maybe_add_cert(Credential0, Channel, cert_pem),
     do_authenticate(Credential, Channel);
 authenticate(
     ?CONNECT_PACKET(#mqtt_packet_connect{password = Password}),
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
     %% Auth with CONNECT packet for MQTT v3
-    Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel),
+    Credential = maybe_add_cert(ClientInfo#{password => Password}, Channel, cert_pem),
     do_authenticate(Credential, Channel);
 authenticate(
     ?AUTH_PACKET(_, #{'Authentication-Method' := AuthMethod} = Properties),

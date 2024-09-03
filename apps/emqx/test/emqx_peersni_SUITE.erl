@@ -147,7 +147,7 @@ t_peersni_saved_into_conninfo(Config) ->
     {ok, Client} = ClientFn(ClientId, _Opts = #{}),
     ?assertMatch(
         #{clientinfo := #{peersni := ?SERVER_NAME}},
-        emqx_cm:get_chan_info(_Mtns = undefined, ClientId)
+        emqx_cm:get_chan_info(?GBNS, ClientId)
     ),
 
     ok = emqtt:disconnect(Client).
@@ -167,7 +167,7 @@ t_parse_peersni_to_client_attr(Config) ->
 
     ?assertMatch(
         #{clientinfo := #{client_attrs := #{mnts := <<"local">>}}},
-        emqx_cm:get_chan_info(_Mtns = undefined, ClientId)
+        emqx_cm:get_chan_info(?GBNS, ClientId)
     ),
 
     ok = emqtt:disconnect(Client).

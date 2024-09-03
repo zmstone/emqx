@@ -202,7 +202,7 @@ clients(["list"]) ->
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
-    ok = emqx_cm:kick_session(_Mtns = undefined, bin(ClientId)),
+    ok = emqx_cm:kick_session(?GBNS, bin(ClientId)),
     emqx_ctl:print("ok~n");
 clients(_) ->
     emqx_ctl:usage([
@@ -212,7 +212,7 @@ clients(_) ->
     ]).
 
 if_client(ClientId, Fun) ->
-    case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
+    case ets:lookup(?CHAN_TAB, {?GBNS, bin(ClientId)}) of
         [] -> emqx_ctl:print("Not Found.~n");
         [Channel] -> Fun({client, Channel})
     end.
@@ -263,7 +263,7 @@ subscriptions(["show", ClientId]) ->
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
-        case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
+        case ets:lookup(?CHAN_TAB, {?GBNS, bin(ClientId)}) of
             [] ->
                 emqx_ctl:print("Error: Channel not found!");
             [{_, Pid}] ->
@@ -273,7 +273,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
         end
     end);
 subscriptions(["del", ClientId, Topic]) ->
-    case ets:lookup(?CHAN_TAB, {_Mtns = undefined, bin(ClientId)}) of
+    case ets:lookup(?CHAN_TAB, {?GBNS, bin(ClientId)}) of
         [] ->
             emqx_ctl:print("Error: Channel not found!");
         [{_, Pid}] ->
@@ -823,7 +823,7 @@ authz(["cache-clean", ClientId]) ->
     %% XXX: Mtns
     Msg = io_lib:format("Drain ~ts authz cache", [ClientId]),
     with_log(
-        fun() -> emqx_mgmt:clean_authz_cache(_Mtns = undefined, iolist_to_binary(ClientId)) end, Msg
+        fun() -> emqx_mgmt:clean_authz_cache(?GBNS, iolist_to_binary(ClientId)) end, Msg
     );
 authz(_) ->
     emqx_ctl:usage(

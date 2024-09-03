@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_channel.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -define(CLIENT_ID, <<"client_with_session">>).
 
@@ -204,5 +205,5 @@ t_get_connected_client_count(_Config) ->
 evict_session_opts(ClientId) ->
     maps:with(
         [conninfo, clientinfo],
-        emqx_cm:get_chan_info(_Mtns = undefined, ClientId)
+        emqx_cm:get_chan_info(?GBNS, ClientId)
     ).

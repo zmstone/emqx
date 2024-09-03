@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -export([ident/1]).
 
@@ -178,7 +179,7 @@ t_lookup_client('end', Config) ->
     disconnect_clients(Config).
 
 t_lookup_client(_Config) ->
-    Mtns = undefined,
+    Mtns = ?GBNS,
     [{Chan, Info, Stats}] = emqx_mgmt:lookup_client(Mtns, {clientid, <<"client1">>}, ?FORMATFUN),
     ?assertEqual(
         [{Chan, Info, Stats}],
@@ -248,7 +249,7 @@ t_clean_cache('end', Config) ->
 t_clean_cache(_Config) ->
     ?assertNotMatch(
         {error, _},
-        emqx_mgmt:clean_authz_cache(_Mtns = undefined, <<"client1">>)
+        emqx_mgmt:clean_authz_cache(?GBNS, <<"client1">>)
     ),
     ?assertNotMatch(
         {error, _},
@@ -590,7 +591,7 @@ connect_client(Node) ->
     {ok, Client, ClientId}.
 
 client_msgs_args(ClientId) ->
-    [mqueue_msgs, _Mtns = undefined, ClientId, #{limit => 10, continuation => none}].
+    [mqueue_msgs, ?GBNS, ClientId, #{limit => 10, continuation => none}].
 
 client_msgs_bad_args(ClientId) ->
-    [mqueue_msgs, _Mtns = undefined, ClientId, "bad_page_params"].
+    [mqueue_msgs, ?GBNS, ClientId, "bad_page_params"].

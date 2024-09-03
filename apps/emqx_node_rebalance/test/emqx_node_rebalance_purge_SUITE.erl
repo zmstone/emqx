@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -392,7 +393,7 @@ t_session_purged(Config) ->
             Node1,
             lists:flatmap(
                 fun(ClientId) ->
-                    emqx_mgmt:lookup_client(_Mtns = undefined, {clientid, ClientId}, FormatFun)
+                    emqx_mgmt:lookup_client(?GBNS, {clientid, ClientId}, FormatFun)
                 end,
                 AllClientIds
             )
@@ -404,7 +405,7 @@ t_session_purged(Config) ->
             Node2,
             lists:flatmap(
                 fun(ClientId) ->
-                    emqx_mgmt:lookup_client(_Mtns = undefined, {clientid, ClientId}, FormatFun)
+                    emqx_mgmt:lookup_client(?GBNS, {clientid, ClientId}, FormatFun)
                 end,
                 AllClientIds
             )

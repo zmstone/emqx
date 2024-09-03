@@ -16,7 +16,7 @@
 
 -module(emqx_mtns).
 
--include("emqx_cm.hrl").
+-include("emqx.hrl").
 
 -export([
     cid/1,
@@ -44,6 +44,6 @@ get_clientid({_, Id}) -> Id.
 -spec parse_cid(emqx_types:clientid() | emqx_types:cid()) ->
     {emqx_types:mtns(), emqx_types:clientid()}.
 parse_cid(ClientId) when is_binary(ClientId) ->
-    {?NO_MTNS, ClientId};
+    {?GBNS, ClientId};
 parse_cid({Mtns, ClientId}) ->
     {Mtns, ClientId}.

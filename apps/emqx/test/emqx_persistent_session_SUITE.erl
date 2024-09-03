@@ -21,6 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
 -compile(export_all).
@@ -212,7 +213,7 @@ receive_message_loop(Count, Deadline) ->
 
 maybe_kill_connection_process(ClientId, Config) ->
     Persistence = ?config(persistence, Config),
-    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(?GBNS, ClientId) of
         [] ->
             ok;
         [ConnectionPid] when Persistence == ds ->
@@ -229,7 +230,7 @@ maybe_kill_connection_process(ClientId, Config) ->
     end.
 
 wait_connection_process_dies(ClientId) ->
-    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(?GBNS, ClientId) of
         [] ->
             ok;
         [ConnectionPid] ->
@@ -246,14 +247,14 @@ wait_connection_process_unregistered(ClientId) ->
     ?retry(
         _Timeout = 100,
         _Retries = 20,
-        ?assertEqual([], emqx_cm:lookup_channels(_Mtns = undefined, ClientId))
+        ?assertEqual([], emqx_cm:lookup_channels(?GBNS, ClientId))
     ).
 
 wait_channel_disconnected(ClientId) ->
     ?retry(
         _Timeout = 100,
         _Retries = 20,
-        case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+        case emqx_cm:lookup_channels(?GBNS, ClientId) of
             [] ->
                 false;
             [ChanPid] ->
@@ -338,7 +339,7 @@ t_choose_impl(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client),
-    [ChanPid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
+    [ChanPid] = emqx_cm:lookup_channels(?GBNS, ClientId),
     ?assertEqual(
         case ?config(persistence, Config) of
             false -> emqx_session_mem;
@@ -1143,7 +1144,7 @@ t_transient(Config) ->
         | Config
     ],
     Deliver = fun(Topic, Payload, QoS) ->
-        [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientId),
+        [Pid] = emqx_cm:lookup_channels(?GBNS, ClientId),
         Msg = emqx_message:make(_From = <<"test">>, QoS, Topic, Payload),
         Pid ! {deliver, Topic, Msg}
     end,

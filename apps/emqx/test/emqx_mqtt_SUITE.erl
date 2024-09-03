@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -199,7 +200,7 @@ with_client(TestFun, _Options) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     timer:sleep(50),
-    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(?GBNS, ClientId) of
         [] ->
             ct:fail({client_not_started, ClientId});
         [ChanPid] ->
@@ -242,7 +243,7 @@ do_async_set_keepalive(OptKeepIdle, OptKeepInterval, OptKeepCount) ->
         2000,
         100
     ),
-    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientID),
+    [Pid] = emqx_cm:lookup_channels(?GBNS, ClientID),
     State = emqx_connection:get_state(Pid),
     Transport = maps:get(transport, State),
     Socket = maps:get(socket, State),

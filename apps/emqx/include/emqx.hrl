@@ -112,4 +112,17 @@
 -define(KIND_REPLICATE, replicate).
 -define(KIND_INITIATE, initiate).
 
+%%--------------------------------------------------------------------
+%% Namespacing
+%%--------------------------------------------------------------------
+
+%% Global namespace.
+-define(GBNS, gbns).
+
+-define(IS_CLIENTID(CID), (is_binary(CID) orelse (is_atom(CID) andalso CID=/= undefined))).
+
+-define(IS_NS_CLIENTID(CID), (is_tuple(CID) andalso tuple_size(CID) == 2 andalso ?IS_CLIENTID(element(2, CID)))).
+
+-define(IS_CID(CID), ?IS_NS_CLIENTID(CID)).
+
 -endif.

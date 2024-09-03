@@ -24,6 +24,7 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -define(HTTP200, {"HTTP/1.1", 200, "OK"}).
 -define(HTTP201, {"HTTP/1.1", 201, "Created"}).
@@ -191,7 +192,7 @@ end_per_testcase(TC, _Config) when
     ok = snabbkaffe:stop(),
     ClientId = atom_to_binary(TC),
     lists:foreach(
-        fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, _Mtns = undefined, ClientId)
+        fun(P) -> exit(P, kill) end, emqx_cm:lookup_channels(local, ?GBNS, ClientId)
     ),
     ok = emqx_common_test_helpers:wait_for(
         ?FUNCTION_NAME,
@@ -277,7 +278,7 @@ t_clients(Config) ->
     {ok, {?HTTP200, _, _}} = request(post, SubscribePath, SubscribeBody, Config),
     timer:sleep(100),
     {_, [{AfterSubTopic, #{qos := AfterSubQos}}]} = emqx_mgmt:list_client_subscriptions(
-        _Mtns = undefined, ClientId1
+        ?GBNS, ClientId1
     ),
     ?assertEqual(AfterSubTopic, Topic),
     ?assertEqual(AfterSubQos, Qos),
@@ -1103,7 +1104,7 @@ t_keepalive(Config) ->
         username => Username, clientid => ClientId, keepalive => InitKeepalive
     }),
     {ok, _} = emqtt:connect(C1),
-    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, list_to_binary(ClientId)),
+    [Pid] = emqx_cm:lookup_channels(?GBNS, list_to_binary(ClientId)),
     %% will reset to max keepalive if keepalive > max keepalive
     #{conninfo := #{keepalive := InitKeepalive}} = emqx_connection:info(Pid),
     ?assertMatch({keepalive, _, _, _, 65536500}, element(5, element(9, sys:get_state(Pid)))),

@@ -20,6 +20,7 @@
 -behaviour(gen_server).
 
 -include("emqx_cm.hrl").
+-include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -235,7 +236,7 @@ get_chan_info(Mtns, ClientId, ChanPid) ->
 -spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
 do_get_chan_info(ClientId, ChanPid) ->
-    do_get_chan_info(?NO_MTNS, ClientId, ChanPid).
+    do_get_chan_info(?GBNS, ClientId, ChanPid).
 
 -spec do_get_chan_info(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
@@ -274,7 +275,7 @@ get_chan_stats(Mtns, ClientId, ChanPid) ->
 -spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
-    do_get_chan_stats(?NO_MTNS, ClientId, ChanPid).
+    do_get_chan_stats(?GBNS, ClientId, ChanPid).
 
 -spec do_get_chan_stats(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
@@ -376,7 +377,7 @@ takeover_session_end({ConnMod, ChanPid}) ->
 
 -spec pick_channel(emqx_types:cid()) ->
     option(pid()).
-pick_channel(CId = {Mtns, ClientId}) when ?IS_CID(CId) ->
+pick_channel(CId = {Mtns, ClientId}) ->
     case lookup_channels(CId) of
         [] ->
             undefined;
@@ -397,7 +398,7 @@ pick_channel(CId = {Mtns, ClientId}) when ?IS_CID(CId) ->
 %% Used by `emqx_persistent_session_ds'
 -spec takeover_kick(emqx_types:clientid()) -> ok.
 takeover_kick(ClientId) ->
-    takeover_kick(?NO_MTNS, ClientId).
+    takeover_kick(?GBNS, ClientId).
 
 -spec takeover_kick(emqx_types:mtns(), emqx_types:clientid()) -> ok.
 takeover_kick(Mtns, ClientId) ->
@@ -445,7 +446,7 @@ takeover_finish(ConnMod, ChanPid) ->
     {living, module(), chan_pid(), emqx_session:t()}
     | none.
 takeover_session(ClientId, Pid) ->
-    takeover_session(?NO_MTNS, ClientId, Pid).
+    takeover_session(?GBNS, ClientId, Pid).
 
 -spec takeover_session(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
     {living, module(), chan_pid(), emqx_session:t()}
@@ -580,7 +581,7 @@ kick_session(Mtns, ClientId, ChanPid) ->
 %% @deprecated
 -spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
 do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
-    do_kick_session(Action, ?NO_MTNS, ClientId, ChanPid).
+    do_kick_session(Action, ?GBNS, ClientId, ChanPid).
 
 %% @doc RPC Target @ emqx_cm_proto_v4:kick_session/4
 -spec do_kick_session(
@@ -602,7 +603,7 @@ do_kick_session(Action, Mtns, ClientId, ChanPid) when node(ChanPid) =:= node() -
 %% @deprecated
 -spec do_takeover_kick_session_v3(emqx_types:clientid(), chan_pid()) -> ok.
 do_takeover_kick_session_v3(ClientId, ChanPid) when node(ChanPid) =:= node() ->
-    do_takeover_kick_session_v4(?NO_MTNS, ClientId, ChanPid).
+    do_takeover_kick_session_v4(?GBNS, ClientId, ChanPid).
 
 %% @doc RPC Target for emqx_cm_proto_v4:takeover_kick_session/4
 -spec do_takeover_kick_session_v4(
@@ -668,7 +669,7 @@ takeover_kick_session(Mtns, ClientId, ChanPid) ->
 %% @deprecated only used for emqx_cm_proto_v1:kickout_client/2
 -spec kick_session(emqx_types:clientid()) -> ok.
 kick_session(ClientId) ->
-    kick_session(?NO_MTNS, ClientId).
+    kick_session(?GBNS, ClientId).
 
 -spec kick_session(emqx_types:mtns(), emqx_types:clientid()) -> ok.
 kick_session(Mtns, ClientId) ->
@@ -776,7 +777,7 @@ lookup_channels({Mtns, ClientId}) ->
 -spec lookup_client({clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
     [channel_info()].
 lookup_client(Key) ->
-    lookup_client(?NO_MTNS, Key).
+    lookup_client(?GBNS, Key).
 
 %% @doc PRC Target for emqx_cm_proto_v4:lookup_client/3
 -spec lookup_client(
@@ -786,7 +787,7 @@ lookup_client(Key) ->
 lookup_client(Mtns, {username, Username}) ->
     MatchSpec =
         case Mtns of
-            undefined ->
+            ?GBNS ->
                 [
                     {
                         {'_', #{clientinfo => #{username => '$1'}}, '_'},
@@ -901,7 +902,7 @@ update_stats({Tab, Stat, MaxStat}) ->
 -spec do_get_chann_conn_mod(emqx_types:clientid(), chan_pid()) ->
     module() | undefined.
 do_get_chann_conn_mod(ClientId, ChanPid) ->
-    do_get_chann_conn_mod(?NO_MTNS, ClientId, ChanPid).
+    do_get_chann_conn_mod(?GBNS, ClientId, ChanPid).
 
 -spec do_get_chann_conn_mod(emqx_types:mtns(), emqx_types:clientid(), chan_pid()) ->
     module() | undefined.

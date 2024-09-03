@@ -16,6 +16,7 @@
 
 -module(emqx_authz_cache).
 
+-include("emqx.hrl").
 -include("emqx_access_control.hrl").
 
 -export([
@@ -185,7 +186,7 @@ drain_cache() ->
 %% @deprecated Use `drain_cache/2` instead
 -spec drain_cache(emqx_types:clientid()) -> ok | {error, not_found}.
 drain_cache(ClientId) ->
-    drain_cache(undefined, ClientId).
+    drain_cache(?GBNS, ClientId).
 
 -spec drain_cache(emqx_types:mtns(), emqx_types:clientid()) -> ok | {error, not_found}.
 drain_cache(Mtns, ClientId) ->

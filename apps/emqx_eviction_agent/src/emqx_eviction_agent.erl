@@ -8,6 +8,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -include_lib("stdlib/include/qlc.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -470,7 +471,7 @@ do_purge_sessions(N) when N > 0 ->
             ({{Mtns, ClientId}, _ConnInfo, _ClientInfo}) ->
                 emqx_cm:discard_session(Mtns, ClientId);
             ({ClientId, _ConnInfo, _ClientInfo}) when is_binary(ClientId) ->
-                emqx_cm:discard_session(undefined, ClientId)
+                emqx_cm:discard_session(?GBNS, ClientId)
         end,
         Channels
     ).

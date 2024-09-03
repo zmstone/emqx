@@ -203,8 +203,8 @@
 -type client_attrs() :: #{binary() => binary()}.
 %% connection identifier
 -type cid() :: {mtns(), clientid()}.
-%% connection namespace. `undefined` means the default namespace.
--type mtns() :: undefined | binary().
+%% connection namespace. `?GBNS` means the default/global namespace.
+-type mtns() :: ?GBNS | binary().
 -type clientid() :: binary() | atom().
 -type username() :: option(binary()).
 -type password() :: option(binary()).

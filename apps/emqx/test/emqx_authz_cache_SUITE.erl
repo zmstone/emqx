@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -87,7 +88,7 @@ find_client_pid(ClientId) ->
     ?retry(_Inteval = 100, _Attempts = 10, do_find_client_pid(ClientId)).
 
 do_find_client_pid(ClientId) ->
-    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(?GBNS, ClientId) of
         Pids when is_list(Pids) ->
             lists:last(Pids);
         _ ->

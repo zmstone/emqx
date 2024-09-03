@@ -23,8 +23,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("quicer/include/quicer.hrl").
--include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 suite() ->
@@ -1485,7 +1486,7 @@ t_multi_streams_emqx_ctrl_kill(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {?GBNS, ClientId}),
     exit(TransPid, kill),
 
     %% Client should be closed
@@ -1538,7 +1539,7 @@ t_multi_streams_emqx_ctrl_exit_normal(Config) ->
     ),
 
     ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {_Mtns = undefined, ClientId}),
+    [{{_, ClientId}, TransPid}] = ets:lookup(?CHAN_TAB, {?GBNS, ClientId}),
 
     emqx_connection:stop(TransPid),
     %% Client exit normal.
@@ -1735,7 +1736,7 @@ t_conn_resume(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(?GBNS, Cid)]).
 
 t_conn_without_ctrl_stream(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1767,7 +1768,7 @@ t_data_stream_race_ctrl_stream(Config) ->
     ]),
     {ok, _} = emqtt:quic_connect(C),
     Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(_Mtns = undefined, Cid)]).
+    ct:pal("~p~n", [emqx_cm:get_chan_info(?GBNS, Cid)]).
 
 t_multi_streams_sub_0_rtt(Config) ->
     PubQos = ?config(pub_qos, Config),

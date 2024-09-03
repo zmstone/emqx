@@ -36,7 +36,7 @@
         }
 }).
 
--define(MTNS, undefined).
+-define(MTNS, ?GBNS).
 
 -define(WAIT(PATTERN, TIMEOUT, RET),
     fun() ->

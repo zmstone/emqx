@@ -520,7 +520,7 @@ on_banned(#banned{who = {clientid, ClientId}}) ->
         }
     ),
     %% XXX: Mtns
-    emqx_cm:try_kick_session(_Mtns = undefined, ClientId),
+    emqx_cm:try_kick_session(?GBNS, ClientId),
     ok;
 on_banned(_) ->
     ok.

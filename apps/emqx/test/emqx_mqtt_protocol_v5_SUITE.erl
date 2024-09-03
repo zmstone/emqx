@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -204,7 +205,7 @@ t_connect_will_message(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
-    [ClientPid] = emqx_cm:lookup_channels(_Mtns = undefined, client_info(clientid, Client1)),
+    [ClientPid] = emqx_cm:lookup_channels(?GBNS, client_info(clientid, Client1)),
     Info = emqx_connection:info(sys:get_state(ClientPid)),
     %% [MQTT-3.1.2-7]
     ?assertNotEqual(undefined, maps:find(will_msg, Info)),
@@ -348,7 +349,7 @@ t_connect_emit_stats_timeout(Config) ->
     {_, IdleTimeout} = lists:keyfind(idle_timeout, 1, Config),
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {keepalive, 60} | Config]),
     {ok, _} = emqtt:ConnFun(Client),
-    [ClientPid] = emqx_cm:lookup_channels(_Mtns = undefined, client_info(clientid, Client)),
+    [ClientPid] = emqx_cm:lookup_channels(?GBNS, client_info(clientid, Client)),
     ?assert(is_reference(emqx_connection:info(stats_timer, sys:get_state(ClientPid)))),
     ?block_until(#{?snk_kind := cancel_stats_timer}, IdleTimeout * 2, _BackInTime = 0),
     ?assertEqual(undefined, emqx_connection:info(stats_timer, sys:get_state(ClientPid))),

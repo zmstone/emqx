@@ -845,7 +845,7 @@ create_tables() ->
 
 %% @doc Force syncing of the transient state to persistent storage
 sync(ClientId) ->
-    case emqx_cm:lookup_channels(_Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(?GBNS, ClientId) of
         [Pid] ->
             Ref = monitor(process, Pid),
             Pid ! {emqx_session, #req_sync{from = self(), ref = Ref}},
@@ -1287,7 +1287,7 @@ get_config(#{zone := Zone}, Key) ->
 -spec try_get_live_session(emqx_types:clientid()) ->
     {pid(), session()} | not_found | not_persistent.
 try_get_live_session(ClientId) ->
-    case emqx_cm:lookup_channels(local, _Mtns = undefined, ClientId) of
+    case emqx_cm:lookup_channels(local, ?GBNS, ClientId) of
         [Pid] ->
             try
                 #{channel := ChanState} = emqx_connection:get_state(Pid),

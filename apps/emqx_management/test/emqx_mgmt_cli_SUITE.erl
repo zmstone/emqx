@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 all() ->
     All = emqx_common_test_helpers:all(?MODULE),
@@ -293,7 +294,7 @@ t_authz(_Config) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
-    [Pid] = emqx_cm:lookup_channels(_Mtns = undefined, ClientIdBin),
+    [Pid] = emqx_cm:lookup_channels(?GBNS, ClientIdBin),
     ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
 
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),

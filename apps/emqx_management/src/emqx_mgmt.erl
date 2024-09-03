@@ -17,6 +17,7 @@
 -module(emqx_mgmt).
 
 -include("emqx_mgmt.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -613,7 +614,7 @@ subscribe([], _Mtns, _ClientId, _TopicTables) ->
 -spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
-    do_subscribe(_Mtns = undefined, ClientId, TopicTables).
+    do_subscribe(?GBNS, ClientId, TopicTables).
 
 -spec do_subscribe(emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()}.
@@ -645,7 +646,7 @@ unsubscribe([], _Mtns, _ClientId, _Topic) ->
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
-    do_unsubscribe(_Mtns = undefined, ClientId, Topic).
+    do_unsubscribe(?GBNS, ClientId, Topic).
 
 -spec do_unsubscribe(emqx_types:mtns(), emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, _}.
@@ -685,7 +686,7 @@ unsubscribe_batch([], _Mtns, _ClientId, _Topics) ->
 -spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, _}.
 do_unsubscribe_batch(ClientId, Topics) ->
-    do_unsubscribe_batch(_Mtns = undefined, ClientId, Topics).
+    do_unsubscribe_batch(?GBNS, ClientId, Topics).
 
 -spec do_unsubscribe_batch(emqx_types:mtns(), emqx_types:clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, _}.

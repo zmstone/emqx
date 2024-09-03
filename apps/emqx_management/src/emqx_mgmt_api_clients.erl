@@ -846,7 +846,7 @@ clients(get, #{query_string := QString}) ->
     list_clients(QString).
 
 kickout_clients(post, #{body := ClientIDs}) ->
-    case emqx_mgmt:kickout_clients(_Mtns = undefined, ClientIDs) of
+    case emqx_mgmt:kickout_clients(?GBNS, ClientIDs) of
         ok ->
             {204};
         {error, Reason} ->
@@ -885,7 +885,7 @@ unsubscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfo
     unsubscribe_batch(#{clientid => ClientID, topics => Topics}).
 
 subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_mgmt:list_client_subscriptions(_Mtns = undefined, ClientID) of
+    case emqx_mgmt:list_client_subscriptions(?GBNS, ClientID) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         [] ->
@@ -903,7 +903,7 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
         error ->
             {400, 'BAD_REQUEST', "Interval Not Found"};
         {ok, Interval} ->
-            case emqx_mgmt:set_keepalive(_Mtns = undefined, ClientID, Interval) of
+            case emqx_mgmt:set_keepalive(?GBNS, ClientID, Interval) of
                 ok -> lookup(#{clientid => ClientID});
                 {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAM_ERROR', message => Reason}}
@@ -1205,7 +1205,7 @@ ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
     end.
 
 lookup(#{clientid := ClientID}) ->
-    case emqx_mgmt:lookup_client(_Mtns = undefined, {clientid, ClientID}, ?FORMAT_FUN) of
+    case emqx_mgmt:lookup_client(?GBNS, {clientid, ClientID}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENTID_NOT_FOUND};
         ClientInfo ->
@@ -1213,7 +1213,7 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client(_Mtns = undefined, ClientID) of
+    case emqx_mgmt:kickout_client(?GBNS, ClientID) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         _ ->
@@ -1221,7 +1221,7 @@ kickout(#{clientid := ClientID}) ->
     end.
 
 get_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:list_authz_cache(_Mtns = undefined, ClientID) of
+    case emqx_mgmt:list_authz_cache(?GBNS, ClientID) of
         {error, not_found} ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
@@ -1233,7 +1233,7 @@ get_authz_cache(#{clientid := ClientID}) ->
     end.
 
 clean_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:clean_authz_cache(_Mtns = undefined, ClientID) of
+    case emqx_mgmt:clean_authz_cache(?GBNS, ClientID) of
         ok ->
             {204};
         {error, not_found} ->
@@ -1274,7 +1274,7 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
         case Result1 of
             [] ->
                 emqx_mgmt:lookup_client(
-                    _Mtns = undefined, {clientid, ClientID}, _FormatFn = undefined
+                    ?GBNS, {clientid, ClientID}, _FormatFn = undefined
                 );
             _ ->
                 Result1
@@ -1305,7 +1305,7 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
 unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     case lookup(#{clientid => ClientID}) of
         {200, _} ->
-            _ = emqx_mgmt:unsubscribe_batch(_Mtns = undefined, ClientID, Topics),
+            _ = emqx_mgmt:unsubscribe_batch(?GBNS, ClientID, Topics),
             {204};
         {404, NotFound} ->
             {404, NotFound}
@@ -1378,7 +1378,7 @@ do_subscribe(ClientID, Topic0, Options) ->
     try emqx_topic:parse(Topic0, Options) of
         {Topic, Opts} ->
             TopicTable = [{Topic, Opts}],
-            case emqx_mgmt:subscribe(_Mtns = undefined, ClientID, TopicTable) of
+            case emqx_mgmt:subscribe(?GBNS, ClientID, TopicTable) of
                 {error, Reason} ->
                     {error, Reason};
                 {subscribe, Subscriptions, Node} ->
@@ -1399,7 +1399,7 @@ do_subscribe(ClientID, Topic0, Options) ->
 -spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 do_unsubscribe(ClientID, Topic) ->
-    case emqx_mgmt:unsubscribe(_Mtns = undefined, ClientID, Topic) of
+    case emqx_mgmt:unsubscribe(?GBNS, ClientID, Topic) of
         {error, Reason} ->
             {error, Reason};
         Res ->
@@ -1585,14 +1585,14 @@ check_for_live_and_expired(Rows) ->
 %% twice in the query result.
 is_live_session(ClientId) ->
     %% XXX: Mtns
-    [] =/= emqx_cm_registry:lookup_channels(_Mtns = undefined, ClientId).
+    [] =/= emqx_cm_registry:lookup_channels(?GBNS, ClientId).
 
 list_client_msgs(MsgType, ClientID, QString) ->
     case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
         PagerParams = #{} ->
-            case emqx_mgmt:list_client_msgs(MsgType, _Mtns = undefined, ClientID, PagerParams) of
+            case emqx_mgmt:list_client_msgs(MsgType, ?GBNS, ClientID, PagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND};
                 {error, shutdown} ->

@@ -11,6 +11,8 @@
 %% `emqx_extsub_handler' API
 -export([
     handle_subscribe/4,
+    handle_unsubscribe/4,
+    handle_terminate/1,
     handle_delivered/4,
     handle_info/3,
     handle_save_subopts/3
@@ -49,6 +51,7 @@
     cursor,
     nudge_enqueued = false,
     times_throttled = 0,
+    fetched = 0,
     delivered = 0
 }).
 
@@ -89,14 +92,21 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             ignore
     end.
 
-handle_delivered(Handler0, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+handle_delivered(Handler0, AckCtx, _Msg, _Ack) ->
+    #{
+        desired_message_count := DesiredMsgCount,
+        delivering_count := DeliveringCount,
+        unacked_count := UnackedCount
+    } = AckCtx,
     #h{delivered = Delivered} = Handler0,
     Handler = Handler0#h{delivered = Delivered + 1},
-    case DesiredMsgCount > 0 of
-        true ->
-            enqueue_nudge(Handler, batch_read_num(), now);
-        false ->
-            Handler
+    case Handler#h.cursor of
+        ?done when UnackedCount == 0 andalso DeliveringCount == 0 ->
+            {destroy, [Handler#h.topic_filter]};
+        _ when DesiredMsgCount > 0 ->
+            {ok, enqueue_nudge(Handler, batch_read_num(), now)};
+        _ ->
+            {ok, Handler}
     end.
 
 handle_info(Handler0, _InfoCtx, #next{n = N}) ->
@@ -105,12 +115,21 @@ handle_info(Handler0, _InfoCtx, #next{n = N}) ->
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
 
+handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, Handler0, _TopicFilter) ->
+    ok = maybe_delete_cursor(Handler0),
+    Handler0#h{cursor = ?done, nudge_enqueued = false}.
+
+handle_terminate(Handler0) ->
+    ok = maybe_delete_cursor(Handler0).
+
 handle_save_subopts(#h{cursor = ?cursor(_)} = Handler0, _Context, _SubOpts) ->
     Res = #{delivered => Handler0#h.delivered},
+    ok = maybe_delete_cursor(Handler0),
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
     {ok, Handler, Res};
 handle_save_subopts(Handler0, _Context, _SubOpts) ->
+    ok = maybe_delete_cursor(Handler0),
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
     {ok, Handler}.
@@ -141,6 +160,7 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
         state = State,
         limiter = Limiter,
         cursor = ?init,
+        fetched = 0,
         delivered = Delivered
     },
     Handler = enqueue_nudge(Handler0, batch_read_num(), now),
@@ -171,6 +191,14 @@ handle_next(#h{cursor = ?no_wildcard} = Handler0, _N) ->
     end;
 handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
     case try_consume(Handler0, N) of
+        {ok, Handler1, []} ->
+            case Handler1#h.cursor of
+                ?done when Handler1#h.fetched == 0 ->
+                    {destroy, [Handler1#h.topic_filter]};
+                _ ->
+                    Handler = enqueue_nudge(Handler1, batch_read_num(), now),
+                    {ok, Handler}
+            end;
         {ok, Handler1, Messages} ->
             Handler =
                 case Handler1#h.cursor of
@@ -231,7 +259,12 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
             Messages = filter_delivery(Messages0),
             Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
-            Handler = Handler0#h{limiter = Limiter, cursor = Cursor, times_throttled = 0},
+            Handler = Handler0#h{
+                limiter = Limiter,
+                cursor = Cursor,
+                fetched = Handler0#h.fetched + NumFetchedMessages,
+                times_throttled = 0
+            },
             {ok, Handler, Messages};
         {error, N, Limiter1, Reason} ->
             ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
@@ -328,3 +361,9 @@ batch_read_num() ->
         N when is_integer(N) ->
             N
     end.
+
+maybe_delete_cursor(#h{cursor = ?cursor(Cursor), mod = Mod, state = State}) ->
+    _ = Mod:delete_cursor(State, Cursor),
+    ok;
+maybe_delete_cursor(_Handler) ->
+    ok.

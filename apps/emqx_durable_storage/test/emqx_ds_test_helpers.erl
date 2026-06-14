@@ -314,6 +314,13 @@ retry_dirty_append(Shard, Opts, TTVs, Retries) ->
         {error, recoverable, _} when Retries > 0 ->
             timer:sleep(500),
             retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
+        %% Leadership can move while a rebalance is in progress (e.g. chaos
+        %% tests), so a retry re-resolves the leader. Only callers that opt into
+        %% retries get this; with the default `retries => 0' a `not_the_leader'
+        %% result still surfaces as a genuine error.
+        {error, unrecoverable, {not_the_leader, _}} when Retries > 0 ->
+            timer:sleep(500),
+            retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
         _ ->
             Result
     end.

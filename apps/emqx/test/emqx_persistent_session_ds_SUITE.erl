@@ -1319,8 +1319,11 @@ t_session_replay_retry(_Config) ->
                 ClientsPub
             ),
             %% 3. The subscriber receives them, but doesn't ack. This
-            %% sets the stage for message replay:
-            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+            %% sets the stage for message replay. Use a generous timeout: DS
+            %% delivers on poll ticks, so a straggler can land well after the
+            %% others under a loaded CI (wait_publishes returns as soon as all
+            %% NClients arrive).
+            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 30_000),
             NPubs = length(Pubs0),
             ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
 

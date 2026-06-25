@@ -69,27 +69,27 @@ jobs:
         if: env.SKIP != '1'
         run: ./scripts/ff-release-from-dev.sh "${{ matrix.version }}"
 
-      - name: Send notification to Slack
+      - name: Send notification to #emqx-devs
         if: failure()
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # #emqx-devs channel id; matches what the local notify scripts use.
+          SLACK_CHANNEL_ID: C03JJJDM2ES
         run: |
-          if [ "${NOT_FAST_FORWARD:-0}" = "1" ]; then
-            REASON="${RELEASE_BRANCH} has diverged from ${DEV_BRANCH}; rebase ${DEV_BRANCH} on top of ${RELEASE_BRANCH} (or reset ${DEV_BRANCH} to a descendant of ${RELEASE_BRANCH}) before the next run."
-          else
-            REASON="Automatic fast-forward of ${RELEASE_BRANCH} from ${DEV_BRANCH} failed."
+          set -euo pipefail
+          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+            echo "SLACK_BOT_TOKEN is unset; skipping alert."
+            exit 0
           fi
-          cat <<EOF > payload.json
-          {
-            "blocks": [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "${REASON} See https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                }
-              }
-            ]
-          }
-          EOF
-          curl -X POST -H 'Content-type: application/json' --data @payload.json "$SLACK_WEBHOOK_URL"
+          if [ "${NOT_FAST_FORWARD:-0}" = "1" ]; then
+            REASON=":x: ${RELEASE_BRANCH} has diverged from ${DEV_BRANCH}; rebase ${DEV_BRANCH} on top of ${RELEASE_BRANCH} (or reset ${DEV_BRANCH} to a descendant of ${RELEASE_BRANCH}) before the next run."
+          else
+            REASON=":x: Automatic fast-forward of ${RELEASE_BRANCH} from ${DEV_BRANCH} failed."
+          fi
+          text="${REASON} See https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          jq -n --arg channel "$SLACK_CHANNEL_ID" --arg text "$text" \
+                '{channel: $channel, text: $text}' > payload.json
+          curl -s https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @payload.json | jq -e '.ok' >/dev/null

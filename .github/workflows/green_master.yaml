@@ -45,16 +45,18 @@ jobs:
             gh run rerun "$id" --failed
           done
 
-      - name: alert Slack when retries are exhausted
+      - name: alert #emqx-devs when retries are exhausted
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # #emqx-devs channel id; matches what the local notify scripts use.
+          SLACK_CHANNEL_ID: C03JJJDM2ES
         run: |
           set -euo pipefail
-          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
-            echo "SLACK_WEBHOOK_URL is unset; skipping alert."
+          if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+            echo "SLACK_BOT_TOKEN is unset; skipping alert."
             exit 0
           fi
           HEAD_SHA=$(git rev-parse HEAD)
@@ -74,18 +76,11 @@ jobs:
             decoded=$(echo "$r" | base64 -d)
             run_url=$(echo "$decoded" | jq -r .url)
             head_sha=$(echo "$decoded" | jq -r .headSha)
-            cat <<EOF > payload.json
-          {
-            "blocks": [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "Push CI on \`${{ matrix.ref }}\` (${head_sha}) is still red after 3 attempts: ${run_url}"
-                }
-              }
-            ]
-          }
-          EOF
-            curl -X POST -H 'Content-type: application/json' --data @payload.json "$SLACK_WEBHOOK_URL"
+            text=":x: Push CI on \`${{ matrix.ref }}\` (${head_sha}) is still red after 3 attempts: ${run_url}"
+            jq -n --arg channel "$SLACK_CHANNEL_ID" --arg text "$text" \
+                  '{channel: $channel, text: $text}' > payload.json
+            curl -s https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data @payload.json | jq -e '.ok' >/dev/null
           done

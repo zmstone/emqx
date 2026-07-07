@@ -365,7 +365,13 @@ emqtt_connect(ClientId) ->
         {ok, _} ->
             %% link again
             link(C0),
-            {ok, C0}
+            {ok, C0};
+        {error, {server_unavailable, _}} ->
+            %% emqtt:connect/1 may RETURN the CONNACK error instead of exiting;
+            %% stop the (unlinked) client proc so it does not leak, then retry.
+            catch emqtt:stop(C0),
+            ct:sleep(100),
+            emqtt_connect(ClientId)
     catch
         exit:{shutdown, server_unavailable} ->
             ct:sleep(100),

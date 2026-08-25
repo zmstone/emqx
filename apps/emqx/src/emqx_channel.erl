@@ -898,7 +898,7 @@ process_puback(
             ok = inc_metrics('packets.puback.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
+            ?SLOG(info, #{msg => "puback_packetId_not_found", packetId => PacketId}),
             ok = inc_metrics('packets.puback.missed', Channel),
             {ok, Channel}
     end.

@@ -499,21 +499,32 @@ t_handle_in_pubrel_not_found_bounded_log(_) ->
     %% produce warning-level log output: the event is recorded by the
     %% packets.pubrel.missed counter and logged at info instead. A fresh
     %% channel has an empty session, so every PUBREL is not_found.
-    N = 100,
-    Flood = fun() ->
-        lists:foreach(
-            fun(_) ->
-                {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _} =
-                    emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel())
-            end,
-            lists:seq(1, N)
-        )
+    Send = fun() ->
+        {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _} =
+            emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel())
     end,
-    IsPubrelMissed = fun(#{msg := Msg}) -> Msg =:= "pubrel_packetId_not_found" end,
+    assert_ack_flood_bounded_log(Send, "pubrel_packetId_not_found").
+
+t_handle_in_puback_not_found_bounded_log(_) ->
+    %% Same as the PUBREL case for PUBACK. A PUBACK with an unknown Packet
+    %% Identifier is ignored (no reply), so the only per-packet output is the
+    %% log, which must not be at warning level.
+    Send = fun() ->
+        {ok, _} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), channel())
+    end,
+    assert_ack_flood_bounded_log(Send, "puback_packetId_not_found").
+
+%% Send N acknowledgement packets with an unknown Packet Identifier and assert
+%% that MsgStr is logged at info, not warning: zero reports at warning level and
+%% N at info level.
+assert_ack_flood_bounded_log(Send, MsgStr) ->
+    N = 100,
+    Flood = fun() -> lists:foreach(fun(_) -> Send() end, lists:seq(1, N)) end,
+    IsMsg = fun(#{msg := Msg}) -> Msg =:= MsgStr end,
     WarningReports = emqx_cth_log_capture:capture(warning, Flood),
-    ?assertEqual([], lists:filter(IsPubrelMissed, WarningReports)),
+    ?assertEqual([], lists:filter(IsMsg, WarningReports)),
     InfoReports = emqx_cth_log_capture:capture(info, Flood),
-    ?assertEqual(N, length(lists:filter(IsPubrelMissed, InfoReports))).
+    ?assertEqual(N, length(lists:filter(IsMsg, InfoReports))).
 
 t_handle_in_pubcomp_ok(_) ->
     ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),

@@ -402,7 +402,13 @@ t_expiry_alarm_message(_Config) ->
     %% is not re-raised, but the details follow the calendar.
     #{} = emqx_license_checker:update(license_valid_for(Today, 4)),
     ?assertMatch(#{details := #{days_left := 4}}, activated_license_alarm()),
-    %% An expired license changes the message, so the alarm is re-raised.
+    %% The last day has its own message, so the alarm is re-raised.
+    #{} = emqx_license_checker:update(license_valid_for(Today, 0)),
+    ?assertMatch(
+        #{message := <<"The license expires today, ", _/binary>>, details := #{days_left := 0}},
+        activated_license_alarm()
+    ),
+    %% An expired license changes the message again.
     #{} = emqx_license_checker:update(license_valid_for(Today, -2)),
     ?assertMatch(
         #{message := <<"The license expired on ", _/binary>>, details := #{days_left := -2}},

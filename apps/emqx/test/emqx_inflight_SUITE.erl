@@ -104,98 +104,6 @@ t_to_list(_) ->
     ExpList = [{Seq, integer_to_binary(Seq)} || Seq <- lists:seq(1, 10)],
     ?assertEqual(ExpList, emqx_inflight:to_list(Inflight)).
 
--doc """
-Check that `reserve/1` skips a used packet id at the wrap point, the
-case where the session used to crash with `{key_exists, Id}`.
-""".
-t_reserve_wraparound(_) ->
-    Inflight = insert_ids([1, 2, 16#FFFF], emqx_inflight:new(50000)),
-    ?assertEqual({ok, 3}, free_from(16#FFFF, Inflight)),
-    ?assertEqual({ok, 3}, free_from(1, Inflight)),
-    ?assertEqual({ok, 16#FFFE}, free_from(16#FFFE, Inflight)).
-
--doc """
-Check that `reserve/1` returns `none` when all 65535 packet ids are in
-use, and finds the only free id from any start point.
-""".
-t_reserve_full(_) ->
-    Full = insert_ids(lists:seq(1, 16#FFFF), emqx_inflight:new(16#FFFF)),
-    ?assert(emqx_inflight:is_full(Full)),
-    ?assertEqual(none, free_from(1, Full)),
-    ?assertEqual(none, free_from(16#FFFF, Full)),
-    OneFree = emqx_inflight:delete(1000, Full),
-    lists:foreach(
-        fun(From) -> ?assertEqual({ok, 1000}, free_from(From, OneFree)) end,
-        [1, 999, 1000, 1001, 16#FFFF]
-    ).
-
--doc """
-Check `reserve/1` when every other packet id is in use, which puts a
-used id in every chunk of the index.
-""".
-t_reserve_alternating(_) ->
-    Inflight = insert_ids(lists:seq(1, 16#FFFF, 2), emqx_inflight:new(0)),
-    ?assertEqual(2048, map_size(index(Inflight))),
-    ?assertEqual({ok, 2}, free_from(1, Inflight)),
-    ?assertEqual({ok, 100}, free_from(99, Inflight)),
-    ?assertEqual({ok, 100}, free_from(100, Inflight)),
-    ?assertEqual({ok, 2}, free_from(16#FFFF, Inflight)).
-
--doc """
-Check `reserve/1` when one long block of packet ids is in use, which
-makes the scan walk over many full chunks.
-""".
-t_reserve_contiguous_block(_) ->
-    Inflight = insert_ids(lists:seq(1, 65000), emqx_inflight:new(0)),
-    ?assertEqual({ok, 65001}, free_from(1, Inflight)),
-    ?assertEqual({ok, 65001}, free_from(32000, Inflight)),
-    ?assertEqual({ok, 16#FFFF}, free_from(16#FFFF, Inflight)),
-    Wrapped = emqx_inflight:insert(16#FFFF, v, Inflight),
-    ?assertEqual({ok, 65001}, free_from(16#FFFF, Wrapped)),
-    Hole = emqx_inflight:delete(30000, Inflight),
-    ?assertEqual({ok, 30000}, free_from(1, Hole)).
-
--doc """
-Check that the index removes a chunk when its last used id is deleted, and
-adds it back when an id in it is used again.
-""".
-t_index_chunk_emptied_and_refilled(_) ->
-    ChunkIds = lists:seq(32, 63),
-    Filled = insert_ids(ChunkIds, emqx_inflight:new(0)),
-    ?assertEqual(#{1 => 16#FFFFFFFF}, index(Filled)),
-    ?assertEqual({ok, 64}, free_from(32, Filled)),
-    Emptied = lists:foldl(fun emqx_inflight:delete/2, Filled, ChunkIds),
-    ?assertEqual(#{}, index(Emptied)),
-    ?assert(emqx_inflight:is_empty(Emptied)),
-    ?assertEqual({ok, 32}, free_from(32, Emptied)),
-    Refilled = emqx_inflight:insert(40, v, Emptied),
-    ?assertEqual(#{1 => 1 bsl 8}, index(Refilled)),
-    ?assertEqual({ok, 41}, free_from(40, Refilled)).
-
--doc """
-Check that `reserve/1` returns the same id as a walk over `contain/2`,
-for random sets of used packet ids of varying density.
-""".
-t_reserve_matches_walk(_) ->
-    rand:seed(exsss, {17897, 1, 2}),
-    lists:foreach(
-        fun(Density) ->
-            Ids = [Id || Id <- lists:seq(1, 16#FFFF), rand:uniform() < Density],
-            Inflight = insert_ids(Ids, emqx_inflight:new(0)),
-            lists:foreach(
-                fun(_) ->
-                    From = rand:uniform(16#FFFF),
-                    ?assertEqual(
-                        walk_free_id(From, Inflight, 16#FFFF),
-                        free_from(From, Inflight)
-                    )
-                end,
-                lists:seq(1, 100)
-            )
-        end,
-        [0.0, 0.1, 0.5, 0.9, 0.99, 0.9999]
-    ).
-
 -doc "Check that `insert/3` rejects keys outside the packet id range.".
 t_insert_rejects_non_packet_id(_) ->
     Inflight = emqx_inflight:insert(1, v, emqx_inflight:new(0)),
@@ -208,26 +116,115 @@ t_insert_rejects_non_packet_id(_) ->
     ).
 
 -doc """
-Check that `alloc/2` inserts the value under the first free packet id at or
-after the counter and moves the counter past it, wrapping from 65535 to 1.
+Check that `alloc/2` hands out the counter value and moves it on by one,
+wrapping from 65535 to 1, without building the bitmap while no used id is
+in the way.
 """.
-t_alloc(_) ->
-    I0 = emqx_inflight:set_next_id(16#FFFE, insert_ids([16#FFFF, 1], emqx_inflight:new(0))),
+t_alloc_plain(_) ->
+    I0 = emqx_inflight:set_next_id(16#FFFE, emqx_inflight:new(32)),
     {ok, 16#FFFE, I1} = emqx_inflight:alloc(a, I0),
-    ?assertEqual(16#FFFF, emqx_inflight:next_id(I1)),
-    {ok, 2, I2} = emqx_inflight:alloc(b, I1),
-    ?assertEqual(3, emqx_inflight:next_id(I2)),
-    ?assertEqual({value, a}, emqx_inflight:lookup(16#FFFE, I2)),
-    ?assertEqual({value, b}, emqx_inflight:lookup(2, I2)),
-    ?assertEqual(4, emqx_inflight:size(I2)),
-    Full = insert_ids(lists:seq(1, 16#FFFF), emqx_inflight:new(0)),
-    ?assertEqual(none, emqx_inflight:alloc(c, Full)).
+    {ok, 16#FFFF, I2} = emqx_inflight:alloc(b, I1),
+    {ok, 1, I3} = emqx_inflight:alloc(c, I2),
+    ?assertEqual(2, emqx_inflight:next_id(I3)),
+    ?assertEqual([{1, c}, {16#FFFE, a}, {16#FFFF, b}], emqx_inflight:to_list(I3)),
+    ?assertEqual(undefined, bitmap(I3)).
 
 -doc """
-Check that `reserve/1` moves the counter without inserting, and that
-`insert/3` and `delete/2` leave the counter unchanged.
+Check that `alloc/2` builds the bitmap when the counter lands on a used id,
+skips to the first unused id, and keeps the bitmap in sync and present
+while a used id is still ahead of the counter.
 """.
-t_reserve_counter(_) ->
+t_alloc_clash_builds_bitmap(_) ->
+    %% 65535 is an old unacked id; the counter has wrapped and caught up.
+    I0 = emqx_inflight:insert(16#FFFF, old, emqx_inflight:new(32)),
+    I1 = emqx_inflight:insert(1, a, emqx_inflight:set_next_id(16#FFFF, I0)),
+    ?assertEqual(undefined, bitmap(I1)),
+    {ok, 2, I2} = emqx_inflight:alloc(b, I1),
+    ?assertEqual(3, emqx_inflight:next_id(I2)),
+    %% Bitmap built from the keys {1, 65535} and updated with 2; 65535 is
+    %% still ahead of the counter, so the bitmap stays.
+    ?assertEqual(
+        emqx_packet_id_bitmap:from_list([1, 2, 16#FFFF]),
+        bitmap(I2)
+    ),
+    {ok, 3, I3} = emqx_inflight:alloc(c, I2),
+    ?assertEqual(emqx_packet_id_bitmap:from_list([1, 2, 3, 16#FFFF]), bitmap(I3)),
+    I4 = emqx_inflight:delete(1, I3),
+    ?assertEqual(emqx_packet_id_bitmap:from_list([2, 3, 16#FFFF]), bitmap(I4)).
+
+-doc """
+Check that the bitmap is dropped as soon as the counter is past the largest
+used id, both after a delete and after an allocation.
+""".
+t_bitmap_dropped_when_counter_is_ahead(_) ->
+    I0 = emqx_inflight:insert(16#FFFF, old, emqx_inflight:new(32)),
+    {ok, 1, I1} = emqx_inflight:alloc(a, emqx_inflight:set_next_id(16#FFFF, I0)),
+    ?assertNotEqual(undefined, bitmap(I1)),
+    %% Acking the old id leaves {1}, and the counter is at 2.
+    I2 = emqx_inflight:delete(16#FFFF, I1),
+    ?assertEqual(undefined, bitmap(I2)),
+    ?assertEqual(2, emqx_inflight:next_id(I2)),
+    %% The same through an allocation: counter at 3 lands on used id 3,
+    %% takes 4, and is then past the largest used id.
+    I3 = emqx_inflight:insert(3, c, emqx_inflight:set_next_id(3, emqx_inflight:new(32))),
+    {ok, 4, I4} = emqx_inflight:alloc(d, I3),
+    ?assertEqual(undefined, bitmap(I4)),
+    ?assertEqual(5, emqx_inflight:next_id(I4)),
+    %% Deleting the last entry also drops it.
+    I5 = emqx_inflight:insert(7, x, emqx_inflight:set_next_id(5, emqx_inflight:new(32))),
+    {ok, 6, I6} = emqx_inflight:alloc(y, emqx_inflight:insert(5, w, I5)),
+    ?assertNotEqual(undefined, bitmap(I6)),
+    I7 = emqx_inflight:delete(7, emqx_inflight:delete(5, emqx_inflight:delete(6, I6))),
+    ?assert(emqx_inflight:is_empty(I7)),
+    ?assertEqual(undefined, bitmap(I7)).
+
+-doc """
+Check that the bitmap is kept once built when the size limit is above
+32767 or unlimited, even after the counter is past every used id.
+""".
+t_bitmap_kept_for_wide_window(_) ->
+    lists:foreach(
+        fun(MaxSize) ->
+            I0 = emqx_inflight:insert(
+                3, c, emqx_inflight:set_next_id(3, emqx_inflight:new(MaxSize))
+            ),
+            {ok, 4, I1} = emqx_inflight:alloc(d, I0),
+            ?assertEqual(emqx_packet_id_bitmap:from_list([3, 4]), bitmap(I1)),
+            I2 = emqx_inflight:delete(4, emqx_inflight:delete(3, I1)),
+            ?assert(emqx_inflight:is_empty(I2)),
+            ?assertEqual(emqx_packet_id_bitmap:new(), bitmap(I2)),
+            {ok, 5, I3} = emqx_inflight:alloc(e, I2),
+            ?assertEqual(emqx_packet_id_bitmap:from_list([5]), bitmap(I3))
+        end,
+        [32768, 50000, 16#FFFF, 0]
+    ),
+    %% At the limit itself the bitmap is still dropped.
+    I4 = emqx_inflight:insert(3, c, emqx_inflight:set_next_id(3, emqx_inflight:new(32767))),
+    {ok, 4, I5} = emqx_inflight:alloc(d, I4),
+    ?assertEqual(undefined, bitmap(I5)).
+
+-doc """
+Check that `alloc/2` returns `none` when all 65535 packet ids are in use,
+and allocates the only free id after one is released.
+""".
+t_alloc_full(_) ->
+    Full = lists:foldl(
+        fun(Id, Acc) -> emqx_inflight:insert(Id, v, Acc) end,
+        emqx_inflight:new(16#FFFF),
+        lists:seq(1, 16#FFFF)
+    ),
+    ?assert(emqx_inflight:is_full(Full)),
+    ?assertEqual(none, emqx_inflight:alloc(v, Full)),
+    ?assertEqual(none, emqx_inflight:reserve(Full)),
+    OneFree = emqx_inflight:delete(1000, Full),
+    {ok, 1000, _} = emqx_inflight:alloc(v, OneFree),
+    {ok, 1000, _} = emqx_inflight:alloc(v, emqx_inflight:set_next_id(1001, OneFree)).
+
+-doc """
+Check that `reserve/1` moves the counter without inserting, skips used ids
+like `alloc/2`, and that `insert/3` and `delete/2` leave the counter alone.
+""".
+t_reserve(_) ->
     I0 = emqx_inflight:new(0),
     ?assertEqual(1, emqx_inflight:next_id(I0)),
     {ok, 1, I1} = emqx_inflight:reserve(I0),
@@ -242,8 +239,7 @@ t_reserve_counter(_) ->
 
 -doc """
 Check that `new/1` returns a placeholder that holds only the size limit, that
-the read functions work on it, and that the first insert builds the full
-structure.
+the read functions work on it, and that the first write builds the record.
 """.
 t_new_is_lazy(_) ->
     I0 = emqx_inflight:new(32),
@@ -264,31 +260,15 @@ t_new_is_lazy(_) ->
     ?assertError(function_clause, emqx_inflight:delete(1, I0)),
     ?assertError(function_clause, emqx_inflight:update(1, v, I0)),
     I1 = emqx_inflight:insert(1, v, I0),
-    ?assertMatch({inflight, 32, #{1 := v}, #{0 := 2}, 1}, I1),
-    ?assertMatch({inflight, 32, #{}, #{}, 7}, emqx_inflight:set_next_id(7, I0)),
+    ?assertMatch({inflight, 32, _, undefined, 1}, I1),
+    ?assertEqual([{1, v}], emqx_inflight:to_list(I1)),
+    ?assertMatch({inflight, 32, _, undefined, 7}, emqx_inflight:set_next_id(7, I0)),
     {ok, 1, I2} = emqx_inflight:alloc(v, I0),
-    ?assertMatch({inflight, 32, #{1 := v}, #{0 := 2}, 2}, I2),
+    ?assertMatch({inflight, 32, _, undefined, 2}, I2),
     {ok, 1, I3} = emqx_inflight:reserve(I0),
-    ?assertMatch({inflight, 32, #{}, #{}, 2}, I3).
+    ?assertMatch({inflight, 32, _, undefined, 2}, I3),
+    ?assert(emqx_inflight:is_empty(I3)).
 
-insert_ids(Ids, Inflight) ->
-    lists:foldl(fun(Id, Acc) -> emqx_inflight:insert(Id, v, Acc) end, Inflight, Ids).
-
-%% Find a free packet id from `From`, through the public API.
-free_from(From, Inflight) ->
-    case emqx_inflight:reserve(emqx_inflight:set_next_id(From, Inflight)) of
-        {ok, Id, _} -> {ok, Id};
-        none -> none
-    end.
-
-%% Reads the packet id index of the opaque `#inflight{}` record.
-index({inflight, _MaxSize, _Entries, Index, _NextId}) ->
-    Index.
-
-walk_free_id(_Id, _Inflight, 0) ->
-    none;
-walk_free_id(Id, Inflight, Left) ->
-    case emqx_inflight:contain(Id, Inflight) of
-        false -> {ok, Id};
-        true -> walk_free_id(Id rem 16#FFFF + 1, Inflight, Left - 1)
-    end.
+%% Reads the bitmap field of the opaque `#inflight{}` record.
+bitmap({inflight, _MaxSize, _Entries, Bitmap, _NextId}) ->
+    Bitmap.

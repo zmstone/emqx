@@ -8,20 +8,23 @@
 Outgoing inflight window of the MQTT session, keyed by packet id. Gateway
 channels that retransmit frames under other keys use `emqx_gateway_inflight`.
 
-Entries are stored in a map. Integer keys in the MQTT packet id range
-(1..65535) are also recorded in a sparse bitmap index: a map from chunk
-number to a 32-bit integer of used ids, `Id bsr 5 => Bits`. A chunk whose
-bits become zero is removed, so an absent chunk means all its ids are free.
+Entries are kept in a `gb_trees` ordered by packet id. The inflight also
+owns the packet id counter: `alloc/2` and `reserve/1` hand out the counter
+value and move it on by one, wrapping from 65535 to 1. `insert/3` with an
+explicit key does not move the counter.
 
-The inflight also owns the packet id counter. `alloc/2` and `reserve/1`
-return the first unused packet id at or after the counter, wrapping from
-65535 to 1, and move the counter past it. `insert/3` with an explicit key
-does not move the counter.
+When the counter lands on a packet id that is still in use, an
+`emqx_packet_id_bitmap` of the used ids is built from the tree and the
+counter skips to the first unused id. The bitmap is kept in sync with the
+tree and dropped as soon as the counter is past the largest used id, since
+no further clash is possible until the counter wraps again. It is never
+dropped when the size limit is above 32767 or unlimited: a window that wide
+clashes often, and rebuilding it on every clash would cost more than keeping
+it.
 
-`new/1` returns a placeholder that holds only the size limit. The record
-with the entries, the index and the counter is built on the first insert,
-`alloc/2`, `reserve/1` or `set_next_id/2`, so a client that never
-receives a QoS 1 or 2 message never pays for it.
+`new/1` returns a placeholder that holds only the size limit. The record is
+built on the first insert, `alloc/2`, `reserve/1` or `set_next_id/2`, so a
+client that never receives a QoS 1 or 2 message never pays for it.
 """.
 
 -compile(inline).
@@ -53,25 +56,20 @@ receives a QoS 1 or 2 message never pays for it.
 -export_type([inflight/0]).
 
 -define(MAX_ID, 16#FFFF).
--define(CHUNK_SHIFT, 5).
--define(OFFSET_MASK, 31).
--define(CHUNK_MASK, 16#FFFFFFFF).
--define(LAST_CHUNK, (?MAX_ID bsr ?CHUNK_SHIFT)).
--define(NUM_CHUNKS, (?LAST_CHUNK + 1)).
+
+%% Above this size limit the bitmap is kept once built.
+-define(KEEP_BITMAP_ABOVE, 32767).
 
 -type max_size() :: non_neg_integer().
 
--type packet_id() :: 1..?MAX_ID.
-
-%% Chunk number => bits of used packet ids. Zero chunks are never stored.
--type index() :: #{non_neg_integer() => pos_integer()}.
+-type packet_id() :: emqx_packet_id_bitmap:packet_id().
 
 -record(inflight, {
     %% 0 means no limit.
     max_size :: max_size(),
-    entries = #{} :: #{packet_id() => term()},
-    %% Packet id keys of `entries`.
-    index = #{} :: index(),
+    entries = gb_trees:empty() :: gb_trees:tree(packet_id(), term()),
+    %% Used packet ids, present only while the counter is behind a used id.
+    bitmap = undefined :: undefined | emqx_packet_id_bitmap:t(),
     %% Where the next search for an unused packet id starts.
     next_id = 1 :: packet_id()
 }).
@@ -94,38 +92,47 @@ new(MaxSize) when MaxSize >= 0 ->
 contain(_Key, ?EMPTY(_)) ->
     false;
 contain(Key, #inflight{entries = Entries}) ->
-    is_map_key(Key, Entries).
+    gb_trees:is_defined(Key, Entries).
 
 -spec lookup(packet_id(), inflight()) -> {value, term()} | none.
 lookup(_Key, ?EMPTY(_)) ->
     none;
 lookup(Key, #inflight{entries = Entries}) ->
-    case Entries of
-        #{Key := Val} -> {value, Val};
-        #{} -> none
-    end.
+    gb_trees:lookup(Key, Entries).
 
 -spec insert(packet_id(), Val :: term(), inflight()) -> inflight().
 insert(Key, Val, I = ?EMPTY(_)) when ?IS_PACKET_ID(Key) ->
     insert(Key, Val, materialize(I));
-insert(Key, _Val, #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
-    erlang:error({key_exists, Key});
-insert(Key, Val, I = #inflight{entries = Entries, index = Index}) when ?IS_PACKET_ID(Key) ->
-    I#inflight{entries = Entries#{Key => Val}, index = mark(Key, Index)}.
+insert(Key, Val, I = #inflight{entries = Entries, bitmap = Bitmap}) when ?IS_PACKET_ID(Key) ->
+    I#inflight{
+        entries = gb_trees:insert(Key, Val, Entries),
+        bitmap = bitmap_set(Key, Bitmap)
+    }.
 
 -spec delete(packet_id(), inflight()) -> inflight().
-delete(Key, I = #inflight{entries = Entries, index = Index}) when is_map_key(Key, Entries) ->
-    I#inflight{entries = maps:remove(Key, Entries), index = unmark(Key, Index)}.
+delete(Key, I = #inflight{entries = Entries, bitmap = Bitmap}) ->
+    maybe_drop_bitmap(I#inflight{
+        entries = gb_trees:delete(Key, Entries),
+        bitmap = bitmap_unset(Key, Bitmap)
+    }).
 
 -spec update(packet_id(), Val :: term(), inflight()) -> inflight().
-update(Key, Val, I = #inflight{entries = Entries}) when is_map_key(Key, Entries) ->
-    I#inflight{entries = Entries#{Key := Val}}.
+update(Key, Val, I = #inflight{entries = Entries}) ->
+    I#inflight{entries = gb_trees:update(Key, Val, Entries)}.
 
 -spec fold(fun((packet_id(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
 fold(_FoldFun, AccIn, ?EMPTY(_)) ->
     AccIn;
 fold(FoldFun, AccIn, #inflight{entries = Entries}) ->
-    maps:fold(FoldFun, AccIn, Entries).
+    fold_iterator(FoldFun, AccIn, gb_trees:iterator(Entries)).
+
+fold_iterator(FoldFun, Acc, It) ->
+    case gb_trees:next(It) of
+        {Key, Val, ItNext} ->
+            fold_iterator(FoldFun, FoldFun(Key, Val, Acc), ItNext);
+        none ->
+            Acc
+    end.
 
 -spec resize(integer(), inflight()) -> inflight().
 resize(MaxSize, ?EMPTY(_)) ->
@@ -139,37 +146,39 @@ is_full(?EMPTY(_)) ->
 is_full(#inflight{max_size = 0}) ->
     false;
 is_full(#inflight{max_size = MaxSize, entries = Entries}) ->
-    MaxSize =< map_size(Entries).
+    MaxSize =< gb_trees:size(Entries).
 
 -spec is_empty(inflight()) -> boolean().
 is_empty(?EMPTY(_)) ->
     true;
 is_empty(#inflight{entries = Entries}) ->
-    map_size(Entries) =:= 0.
+    gb_trees:is_empty(Entries).
 
 -doc "Return the values, ordered by key.".
 -spec values(inflight()) -> list().
-values(Inflight) ->
-    [Val || {_Key, Val} <- to_list(Inflight)].
+values(?EMPTY(_)) ->
+    [];
+values(#inflight{entries = Entries}) ->
+    gb_trees:values(Entries).
 
 -doc "Return the entries, ordered by key.".
 -spec to_list(inflight()) -> list({packet_id(), term()}).
 to_list(?EMPTY(_)) ->
     [];
 to_list(#inflight{entries = Entries}) ->
-    lists:keysort(1, maps:to_list(Entries)).
+    gb_trees:to_list(Entries).
 
 -spec to_list(fun(), inflight()) -> list({packet_id(), term()}).
 to_list(_SortFun, ?EMPTY(_)) ->
     [];
 to_list(SortFun, #inflight{entries = Entries}) ->
-    lists:sort(SortFun, maps:to_list(Entries)).
+    lists:sort(SortFun, gb_trees:to_list(Entries)).
 
 -spec size(inflight()) -> non_neg_integer().
 size(?EMPTY(_)) ->
     0;
 size(#inflight{entries = Entries}) ->
-    map_size(Entries).
+    gb_trees:size(Entries).
 
 -spec max_size(inflight()) -> non_neg_integer().
 max_size(?EMPTY(MaxSize)) ->
@@ -185,14 +194,15 @@ in use.
 -spec alloc(Val :: term(), inflight()) -> {ok, packet_id(), inflight()} | none.
 alloc(Val, I = ?EMPTY(_)) ->
     alloc(Val, materialize(I));
-alloc(Val, I = #inflight{entries = Entries, index = Index, next_id = NextId}) ->
-    case next_free_id(NextId, Index) of
-        {ok, Id} ->
-            {ok, Id, I#inflight{
-                entries = Entries#{Id => Val},
-                index = mark(Id, Index),
+alloc(Val, I = #inflight{entries = Entries}) ->
+    case take_next_id(I) of
+        {ok, Id, Bitmap} ->
+            I1 = I#inflight{
+                entries = gb_trees:insert(Id, Val, Entries),
+                bitmap = bitmap_set(Id, Bitmap),
                 next_id = next(Id)
-            }};
+            },
+            {ok, Id, maybe_drop_bitmap(I1)};
         none ->
             none
     end.
@@ -205,10 +215,12 @@ packet ids are in use.
 -spec reserve(inflight()) -> {ok, packet_id(), inflight()} | none.
 reserve(I = ?EMPTY(_)) ->
     reserve(materialize(I));
-reserve(I = #inflight{index = Index, next_id = NextId}) ->
-    case next_free_id(NextId, Index) of
-        {ok, Id} -> {ok, Id, I#inflight{next_id = next(Id)}};
-        none -> none
+reserve(I = #inflight{}) ->
+    case take_next_id(I) of
+        {ok, Id, Bitmap} ->
+            {ok, Id, maybe_drop_bitmap(I#inflight{bitmap = Bitmap, next_id = next(Id)})};
+        none ->
+            none
     end.
 
 -doc "Return the packet id counter: where the next search for an unused id starts.".
@@ -233,92 +245,44 @@ set_next_id(NextId, I = #inflight{}) when ?IS_PACKET_ID(NextId) ->
 materialize(?EMPTY(MaxSize)) ->
     #inflight{max_size = MaxSize}.
 
-next_free_id(From, Index) ->
-    Chunk = From bsr ?CHUNK_SHIFT,
-    FromMask = ?CHUNK_MASK bxor ((1 bsl (From band ?OFFSET_MASK)) - 1),
-    scan(Chunk, FromMask, ?NUM_CHUNKS, Index).
+%% Find the id to hand out, and the bitmap to continue with: `undefined`
+%% while the counter is not on a used id, the used-id bitmap otherwise.
+take_next_id(#inflight{entries = Entries, bitmap = undefined, next_id = NextId}) ->
+    case gb_trees:is_defined(NextId, Entries) of
+        false ->
+            {ok, NextId, undefined};
+        true ->
+            Bitmap = emqx_packet_id_bitmap:from_list(gb_trees:keys(Entries)),
+            take_next_id_from_bitmap(NextId, Bitmap)
+    end;
+take_next_id(#inflight{bitmap = Bitmap, next_id = NextId}) ->
+    take_next_id_from_bitmap(NextId, Bitmap).
 
-%% Steps counts the chunks left to visit after this one. The start chunk is
-%% visited twice: first from the `From` offset, last in full, so the ids
-%% below `From` in that chunk are checked after the wrap.
-scan(Chunk, Mask, Steps, Index) ->
-    %% 1 bits mean 'free' or 'unused'.
-    Free = (used_bits(Chunk, Index) bxor ?CHUNK_MASK) band Mask,
-    case Free of
-        0 when Steps =:= 0 ->
-            none;
-        0 ->
-            scan(next_chunk(Chunk), ?CHUNK_MASK, Steps - 1, Index);
-        _ ->
-            Offset = offset(Free),
-            {ok, (Chunk bsl ?CHUNK_SHIFT) + Offset}
+take_next_id_from_bitmap(NextId, Bitmap) ->
+    case emqx_packet_id_bitmap:next_free(NextId, Bitmap) of
+        {ok, Id} -> {ok, Id, Bitmap};
+        none -> none
     end.
 
-%% Packet id 0 is not valid, so chunk 0 always reports it as used.
-used_bits(0, Index) ->
-    maps:get(0, Index, 0) bor 1;
-used_bits(Chunk, Index) ->
-    maps:get(Chunk, Index, 0).
+bitmap_set(_Id, undefined) -> undefined;
+bitmap_set(Id, Bitmap) -> emqx_packet_id_bitmap:set(Id, Bitmap).
+
+bitmap_unset(_Id, undefined) -> undefined;
+bitmap_unset(Id, Bitmap) -> emqx_packet_id_bitmap:unset(Id, Bitmap).
+
+%% Drop the bitmap once the counter is past every used id: the counter then
+%% cannot land on a used id before it wraps. Keep it for a wide window.
+maybe_drop_bitmap(I = #inflight{bitmap = undefined}) ->
+    I;
+maybe_drop_bitmap(I = #inflight{max_size = MaxSize}) when
+    MaxSize =:= 0; MaxSize > ?KEEP_BITMAP_ABOVE
+->
+    I;
+maybe_drop_bitmap(I = #inflight{entries = Entries, next_id = NextId}) ->
+    case gb_trees:is_empty(Entries) orelse NextId > element(1, gb_trees:largest(Entries)) of
+        true -> I#inflight{bitmap = undefined};
+        false -> I
+    end.
 
 next(?MAX_ID) -> 1;
 next(Id) -> Id + 1.
-
-next_chunk(?LAST_CHUNK) -> 0;
-next_chunk(Chunk) -> Chunk + 1.
-
-mark(Key, Index) ->
-    Chunk = Key bsr ?CHUNK_SHIFT,
-    Bit = 1 bsl (Key band ?OFFSET_MASK),
-    Index#{Chunk => maps:get(Chunk, Index, 0) bor Bit}.
-
-%% A chunk is removed when its last bit is cleared, so that the index only
-%% holds chunks with at least one used id.
-unmark(Key, Index) ->
-    Chunk = Key bsr ?CHUNK_SHIFT,
-    Bit = 1 bsl (Key band ?OFFSET_MASK),
-    case maps:get(Chunk, Index) band (bnot Bit) of
-        0 -> maps:remove(Chunk, Index);
-        Bits -> Index#{Chunk := Bits}
-    end.
-
-%% Offset of the lowest 1 bit.
-%% Replace with a count-trailing-zeros BIF once OTP has one:
-%% https://github.com/erlang/otp/issues/11757
-offset(Free) ->
-    tzc(Free band -Free).
-
-%% Trailing zero-bit count of a single-bit integer.
-%% Benchmarks show the 32-clause function is faster than bsr algorithms
-%% (binary search, and a shift loop is worse still).
-tzc(16#1) -> 0;
-tzc(16#2) -> 1;
-tzc(16#4) -> 2;
-tzc(16#8) -> 3;
-tzc(16#10) -> 4;
-tzc(16#20) -> 5;
-tzc(16#40) -> 6;
-tzc(16#80) -> 7;
-tzc(16#100) -> 8;
-tzc(16#200) -> 9;
-tzc(16#400) -> 10;
-tzc(16#800) -> 11;
-tzc(16#1000) -> 12;
-tzc(16#2000) -> 13;
-tzc(16#4000) -> 14;
-tzc(16#8000) -> 15;
-tzc(16#10000) -> 16;
-tzc(16#20000) -> 17;
-tzc(16#40000) -> 18;
-tzc(16#80000) -> 19;
-tzc(16#100000) -> 20;
-tzc(16#200000) -> 21;
-tzc(16#400000) -> 22;
-tzc(16#800000) -> 23;
-tzc(16#1000000) -> 24;
-tzc(16#2000000) -> 25;
-tzc(16#4000000) -> 26;
-tzc(16#8000000) -> 27;
-tzc(16#10000000) -> 28;
-tzc(16#20000000) -> 29;
-tzc(16#40000000) -> 30;
-tzc(16#80000000) -> 31.

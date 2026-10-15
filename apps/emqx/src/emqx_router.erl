@@ -260,10 +260,12 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
     ok = emqx_router_helper:monitor(Dest),
     mria_insert_route_v2(Topic, Dest, single).
 
--doc "Add local routes in one Mria activity. Each dirty write replicates separately.".
+-doc "Add local routes and replicate v3 route additions in one batch.".
 -spec do_add_routes(schemavsn(), [emqx_types:topic()]) -> ok.
 do_add_routes(_SchemaVsn, []) ->
     ok;
+do_add_routes(v3, Topics) ->
+    add_routes_v3(Topics, [], [], []);
 do_add_routes(_SchemaVsn, [Topic]) ->
     do_add_route(Topic);
 do_add_routes(SchemaVsn, Topics) ->
@@ -277,6 +279,30 @@ do_add_routes(SchemaVsn, Topics) ->
         end,
     Errors = mria:async_dirty(Shard, fun ?MODULE:mria_batch_run/2, [v2, Batch]),
     0 = map_size(Errors),
+    ok.
+
+add_routes_v3([Topic | Topics], Routes, Filters, Ops) ->
+    Dest = node(),
+    case emqx_trie_search:filter(Topic) of
+        Words when is_list(Words) ->
+            Key = emqx_topic_index:make_key(Words, Dest),
+            Record = #routeidx{entry = Key},
+            Op = {{?ROUTE_TAB_FILTERS_V3, Key}, Record, write},
+            add_routes_v3(Topics, Routes, [Record | Filters], [Op | Ops]);
+        false ->
+            Record = #route{topic = Topic, dest = Dest},
+            Op = {{?ROUTE_TAB_V3, Topic}, Record, write},
+            add_routes_v3(Topics, [Record | Routes], Filters, [Op | Ops])
+    end;
+add_routes_v3([], Routes, Filters, Ops) ->
+    insert_routes_v3(?ROUTE_TAB_V3, Routes),
+    insert_routes_v3(?ROUTE_TAB_FILTERS_V3, Filters),
+    mria_rlog_server:dispatch(?ROUTE_SHARD_V3, {dirty, self()}, #{ram_copies => Ops}).
+
+insert_routes_v3(_Table, []) ->
+    ok;
+insert_routes_v3(Table, Records) ->
+    true = ets:insert(Table, Records),
     ok.
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic

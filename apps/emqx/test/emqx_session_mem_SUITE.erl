@@ -1454,7 +1454,8 @@ t_delivery_quota_lazy_stays_placeholder(_TCConfig) ->
 
 -doc """
 A delivery limit configured after session creation applies without reconnect:
-the placeholder materializes into a container on the next delivery.
+the placeholder delivers without a limit until the next quota refresh, then
+materializes into a container.
 """.
 t_delivery_quota_lazy_hot_update(_TCConfig) ->
     ListenerId = 'tcp:lazy_hot_update',
@@ -1476,11 +1477,15 @@ t_delivery_quota_lazy_hot_update(_TCConfig) ->
         ],
         Session0
     ),
-    %% Only two messages come out; the rest wait for the retry timer.
-    {Effect, [_Pub1, _Pub2], Session1} =
+    %% Before the refresh, the placeholder applies no limit.
+    {_Effect0, [_, _, _, _], #session{quota = {lazy, ListenerId}}} =
         emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
-    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect),
-    ?assertMatch(#session{quota = #{}}, Session1).
+    Session1 = emqx_session_mem:refresh_quota(Session0),
+    ?assertMatch(#session{quota = #{}}, Session1),
+    %% Only two messages come out; the rest wait for the retry timer.
+    {Effect, [_Pub1, _Pub2], _Session2} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session1),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect).
 
 -doc """
 Verifies that delivery limits do not compromise message ordering.

@@ -16,6 +16,7 @@
 
 -define(FRAME_KEY(Zone), {emqx_connection_conf, Zone, frame}).
 -define(CONN_KEY(Listener, Zone), {emqx_connection_conf, Listener, Zone, conf}).
+-define(PUB_CAPS_KEY(Zone), {emqx_connection_conf, Zone, pub_caps}).
 -define(SOCKET_LISTENER, {tcp, socket}).
 -define(PROTO_VERS, [v3, v4, v5]).
 
@@ -64,6 +65,9 @@ all() ->
             t_listener_unrelated_change_keeps_entry,
             t_listener_delete_erases_entry,
             t_zone_removal,
+            t_pub_caps_first_use,
+            t_pub_caps_config_change,
+            t_pub_caps_zone_removal,
             t_shutdown_erases_entries,
             t_restart_rebuilds_entries
         ].
@@ -474,6 +478,52 @@ t_listener_delete_erases_entry(_Config) ->
     {ok, _} = emqx:update_config([listeners, tcp, tmp_listener], ?TOMBSTONE_CONFIG_CHANGE_REQ),
     ?assertEqual(undefined, persistent_term:get(?CONN_KEY(Listener, default), undefined)),
     ?assert(erts_debug:same(Kept, persistent_term:get(?CONN_KEY(?SOCKET_LISTENER, default)))).
+
+-doc """
+The first PUBLISH capability check in a zone builds the entry from the zone
+config and registers it.
+""".
+t_pub_caps_first_use(_Config) ->
+    _ = persistent_term:erase(?PUB_CAPS_KEY(default)),
+    Caps = emqx_connection_conf:pub_caps(default),
+    ?assertEqual(
+        maps:with(
+            [max_topic_levels, max_qos_allowed, retain_available],
+            emqx_config:get_zone_conf(default, [mqtt])
+        ),
+        Caps
+    ),
+    ok = emqx_connection_conf:sync(),
+    ?assertEqual(Caps, persistent_term:get(?PUB_CAPS_KEY(default))).
+
+-doc """
+A change to `mqtt.max_qos_allowed` rebuilds the PUBLISH capabilities entry,
+and `emqx_mqtt_caps:check_pub/2` applies the new value at once.
+""".
+t_pub_caps_config_change(_Config) ->
+    _ = emqx_connection_conf:pub_caps(default),
+    ok = emqx_connection_conf:sync(),
+    Old = emqx_config:get([mqtt, max_qos_allowed]),
+    Flags = #{qos => ?QOS_2, retain => false, topic => <<"t/1">>},
+    ?assertEqual(ok, emqx_mqtt_caps:check_pub(default, Flags)),
+    try
+        {ok, _} = emqx:update_config([mqtt, max_qos_allowed], 1),
+        ?assertMatch(#{max_qos_allowed := 1}, persistent_term:get(?PUB_CAPS_KEY(default))),
+        ?assertEqual(
+            {error, ?RC_QOS_NOT_SUPPORTED}, emqx_mqtt_caps:check_pub(default, Flags)
+        )
+    after
+        {ok, _} = emqx:update_config([mqtt, max_qos_allowed], Old)
+    end.
+
+-doc "Removing a zone erases its PUBLISH capabilities entry.".
+t_pub_caps_zone_removal(_Config) ->
+    {ok, _} = emqx:update_config([zones], #{<<"tmpzone">> => #{}}),
+    _ = emqx_connection_conf:pub_caps(tmpzone),
+    ok = emqx_connection_conf:sync(),
+    ?assertMatch(#{max_qos_allowed := _}, persistent_term:get(?PUB_CAPS_KEY(tmpzone))),
+    {ok, _} = emqx:update_config([zones], #{}),
+    ?assertEqual(undefined, persistent_term:get(?PUB_CAPS_KEY(tmpzone), undefined)).
 
 -doc """
 A new zone gets its entries on first use, and removing the zone deletes

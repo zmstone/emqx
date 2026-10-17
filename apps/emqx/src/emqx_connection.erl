@@ -126,6 +126,10 @@
     %% Tenant Namespace
     namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
+    %% `true' when `send/4' hands data to the inet driver without waiting
+    %% for its reply (`gen_tcp:send_async/3', inet backend only).
+    async_send = false :: boolean(),
+
     %% Extra field for future hot-upgrade support
     extra = []
 }).
@@ -381,9 +385,17 @@ init_state(
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         namespace = ?global_ns,
+        async_send = use_async_send(Transport, Socket),
         extra = []
     },
     init_zone_specific_state(Conf, Zone, State0).
+
+%% Only an inet-backend TCP port supports `gen_tcp:send_async/3', and only
+%% an OTP that carries the EMQX patch exports it.
+use_async_send(esockd_transport, Socket) when is_port(Socket) ->
+    erlang:function_exported(gen_tcp, send_async, 3);
+use_async_send(_Transport, _Socket) ->
+    false.
 
 run_loop(
     Parent,
@@ -584,6 +596,11 @@ handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     inc_metrics('bytes.received', State, Oct),
     on_bytes_in(Oct, Data, State);
+handle_msg({inet_reply, _Sock, ok, send_async}, _State) ->
+    %% The driver queued the data of an asynchronous send, see `send/4'.
+    ok;
+handle_msg({inet_reply, _Sock, {error, Reason}, send_async}, State) ->
+    send_error(Reason, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     ok = inc_metrics('bytes.received', State, Len),
     on_bytes_in(Len, Data, State);
@@ -1123,14 +1140,19 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
-send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
+send(
+    Num,
+    Oct,
+    IoData,
+    #state{transport = Transport, socket = Socket, async_send = Async} = State
+) ->
     inc_metrics('bytes.sent', State, Oct),
-    case Transport:send(Socket, IoData) of
+    case do_send(Async, Transport, Socket, IoData) of
         ok ->
-            %% NOTE: for Transport=emqx_quic_stream, it's actually an
-            %% async_send, sent/1 should technically be called when
-            %% {quic, send_complete, _Stream, true | false} is received,
-            %% but it is handled early for simplicity
+            %% NOTE: for Transport=emqx_quic_stream and for an asynchronous
+            %% send, the data is only queued at this point. sent/1 should
+            %% technically be called when the send completes, but it is
+            %% handled early for simplicity.
             Ok = sent(Num, Oct, State),
             ?BROKER_INSTR_WMARK(t0_deliver, {T0, TDeliver} when is_integer(T0), begin
                 TSent = ?BROKER_INSTR_TS(),
@@ -1138,15 +1160,33 @@ send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) -
                 ?BROKER_INSTR_OBSERVE_HIST(connection, deliver_total_lat_us, ?US(TSent - T0))
             end),
             Ok;
-        {error, timeout} ->
-            %% Defer error handling
-            %% so it's handled the same as tcp_closed or ssl_closed
-            {ok, {sock_error, send_timeout}, State};
-        {error, Reason} when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
-            {ok, close_socket(State)};
         {error, Reason} ->
-            {ok, {sock_error, Reason}, State}
+            send_error(Reason, State)
     end.
+
+%% An asynchronous send returns when the driver has the data. The driver
+%% replies later with `{inet_reply, Socket, Status, send_async}', which
+%% `handle_msg/2' handles. `{error, busy}' means the driver queue is above
+%% its high watermark: send that packet synchronously, so that the caller
+%% waits for the queue to drain as it does without the asynchronous path.
+do_send(true, Transport, Socket, IoData) ->
+    case gen_tcp:send_async(Socket, IoData, [nosuspend]) of
+        {error, busy} ->
+            Transport:send(Socket, IoData);
+        Result ->
+            Result
+    end;
+do_send(false, Transport, Socket, IoData) ->
+    Transport:send(Socket, IoData).
+
+send_error(timeout, State) ->
+    %% Defer error handling
+    %% so it's handled the same as tcp_closed or ssl_closed
+    {ok, {sock_error, send_timeout}, State};
+send_error(Reason, State) when Reason =:= closed; Reason =:= einval; Reason =:= enotconn ->
+    {ok, close_socket(State)};
+send_error(Reason, State) ->
+    {ok, {sock_error, Reason}, State}.
 
 %% Some bytes sent
 -spec sent(non_neg_integer(), non_neg_integer(), state()) ->

@@ -19,7 +19,7 @@ The module:
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([register_hooks/0, unregister_hooks/0]).
+-export([register_hooks/0, unregister_hooks/0, ensure_delivery_hooks/0]).
 
 -export([
     on_session_created/2,
@@ -44,6 +44,7 @@ The module:
 -export([filter_saved_subopts/2]).
 
 -define(ST_PD_KEY, extsub_st).
+-define(DELIVERY_HOOKS_PT_KEY, {?MODULE, delivery_hooks}).
 -define(CHANNEL_INFO_PD_KEY, extsub_channel_info).
 %% A channel process that ran neither the `session.created' nor the
 %% `session.resumed' hook has no metadata. Gateway channels that resume a session
@@ -71,8 +72,6 @@ The module:
 
 -spec register_hooks() -> ok.
 register_hooks() ->
-    ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('message.delivered', {?MODULE, on_message_delivered, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
@@ -85,6 +84,7 @@ register_hooks() ->
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
+    _ = persistent_term:erase(?DELIVERY_HOOKS_PT_KEY),
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('message.delivered', {?MODULE, on_message_delivered}),
     emqx_hooks:del('session.created', {?MODULE, on_session_created}),
@@ -96,6 +96,26 @@ unregister_hooks() ->
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
     ok.
+
+-doc """
+Add the per-delivery hooks. A handler calls this when it starts, before it
+sends any message, so a node without extsub handlers runs no extsub callback
+per delivered message.
+""".
+-spec ensure_delivery_hooks() -> ok.
+ensure_delivery_hooks() ->
+    case persistent_term:get(?DELIVERY_HOOKS_PT_KEY, false) of
+        true ->
+            ok;
+        false ->
+            ok = emqx_hooks:put(
+                'delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST
+            ),
+            ok = emqx_hooks:put(
+                'message.delivered', {?MODULE, on_message_delivered, []}, ?HP_LOWEST
+            ),
+            persistent_term:put(?DELIVERY_HOOKS_PT_KEY, true)
+    end.
 
 -spec inspect(pid()) -> {ok, map()} | {error, timeout}.
 inspect(ChannelPid) ->

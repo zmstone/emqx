@@ -169,6 +169,7 @@ subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
         ignore ->
             ignore;
         {ok, State} ->
+            ok = emqx_extsub:ensure_delivery_hooks(),
             {ok, #handler{
                 cbm = CBM,
                 st = State,

@@ -103,6 +103,7 @@ emqx_mongodb
 emqx_mq
 emqx_mt
 emqx_mysql
+emqx_nifmq
 emqx_node_rebalance
 emqx_opentelemetry
 emqx_oracle

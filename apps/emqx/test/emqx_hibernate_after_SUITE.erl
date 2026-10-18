@@ -66,7 +66,7 @@ end_per_testcase(t_quic_new_conn_follows_zone_change, _Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
-%% `idle_timeout' is also the period of the stats timer, which wakes a
+%% `stats_emit_interval' is the period of the stats timer, which wakes a
 %% hibernated connection when it fires. Keep it short so
 %% `t_hibernates_after_timer_wakeup' does not have to wait for the default.
 %% The QUIC listener sets its deprecated `ssl_options.hibernate_after' far
@@ -76,7 +76,7 @@ conf(quic) ->
     emqx_utils:format(
         """
         mqtt.hibernate_after = ~pms
-        mqtt.idle_timeout = 1s
+        mqtt.stats_emit_interval = 1s
         listeners.quic.default {
           enable = true
           bind = "127.0.0.1:~p"
@@ -89,7 +89,7 @@ conf(ws) ->
     emqx_utils:format(
         """
         mqtt.hibernate_after = ~pms
-        mqtt.idle_timeout = 1s
+        mqtt.stats_emit_interval = 1s
         """,
         [?HIBERNATE_AFTER_MS]
     );
@@ -97,7 +97,7 @@ conf(TcpBackend) ->
     emqx_utils:format(
         """
         mqtt.hibernate_after = ~pms
-        mqtt.idle_timeout = 1s
+        mqtt.stats_emit_interval = 1s
         listeners.tcp.default.tcp_backend = ~p
         """,
         [?HIBERNATE_AFTER_MS, TcpBackend]
@@ -127,7 +127,7 @@ t_hibernates_after_timer_wakeup(Config) ->
     C = connect(ClientId, Config),
     [Pid] = emqx_cm:lookup_channels(ClientId),
     {ok, _, [0]} = emqtt:subscribe(C, <<"t/hibernate">>, 0),
-    %% Sleep past the stats timer, which runs for `mqtt.idle_timeout'.
+    %% Sleep past the stats timer, which runs for `mqtt.stats_emit_interval'.
     timer:sleep(1500),
     ?assertEqual(?HIBERNATED, await_hibernated(Pid)),
     ok = emqtt:disconnect(C).

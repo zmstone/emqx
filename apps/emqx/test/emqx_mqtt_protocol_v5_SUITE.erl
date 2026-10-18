@@ -926,18 +926,18 @@ t_connect_will_retain(Config) ->
     clean_retained(Topic, Config).
 
 t_connect_emit_stats_timeout(init, Config) ->
-    NewIdleTimeout = 1000,
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], NewIdleTimeout),
+    NewInterval = 1000,
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], NewInterval),
     ok = snabbkaffe:start_trace(),
-    [{idle_timeout, NewIdleTimeout} | Config];
+    [{stats_emit_interval, NewInterval} | Config];
 t_connect_emit_stats_timeout('end', _Config) ->
     snabbkaffe:stop(),
-    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 15000),
+    emqx_config:put_zone_conf(default, [mqtt, stats_emit_interval], 60000),
     ok.
 
 t_connect_emit_stats_timeout(Config) ->
     ConnFun = ?config(conn_fun, Config),
-    IdleTimeout = ?config(idle_timeout, Config),
+    IdleTimeout = ?config(stats_emit_interval, Config),
     {ok, Client} = emqtt:start_link([{proto_ver, v5}, {keepalive, 60} | Config]),
     {ok, _} = emqtt:ConnFun(Client),
     %% Poke the connection to ensure stats timer is armed.

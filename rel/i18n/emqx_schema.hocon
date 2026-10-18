@@ -1376,6 +1376,14 @@ Note: Please set the parameter with caution as long idle time will lead to resou
 mqtt_idle_timeout.label:
 """Idle Timeout"""
 
+mqtt_stats_emit_interval.desc:
+"""How often an active connection writes its statistics (packet and message counters, queue lengths, process memory) to the client information table that the REST API and the Dashboard read, and checks its send queue for congestion.
+A connection that receives no packets within this period stops the timer until the next packet.
+A shorter period keeps the client statistics fresher at the cost of one socket query and one table write per connection per period."""
+
+mqtt_stats_emit_interval.label:
+"""Statistics Emit Interval"""
+
 mqtt_hibernate_after.desc:
 """Put an established connection into hibernation after this period without any activity.
 Hibernation runs a garbage collection and shrinks the process heap to the data still in use. This saves about 5 KB per idle connection.

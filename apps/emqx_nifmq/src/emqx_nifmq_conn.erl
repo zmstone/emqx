@@ -16,6 +16,10 @@ writes it to the socket. No Erlang message goes to the subscriber's process. QoS
 deliveries use a native window of `window` packets; the rest wait in a native queue of at
 most `max_mqueue` messages.
 
+After `read_native/1`, a native poller thread also reads the socket. It handles PUBACKs
+itself and sends every other packet to the owner as `{nifmq_data, Conn, Bytes}`. At end of
+stream or on an error it sends `{nifmq_closed, Conn, Reason}`.
+
 The connection closes its socket copy when `close/1` is called or when the owner (the
 process that called `attach/2`) exits.
 """.
@@ -27,6 +31,7 @@ process that called `attach/2`) exits.
     unsubscribe/2,
     dispatch/2,
     puback/2,
+    read_native/1,
     send/2,
     close/1,
     info/1,
@@ -128,6 +133,13 @@ dispatch_cont(Cont, Acc) ->
 -spec puback(conn(), 1..65535) -> ok | {error, not_found}.
 puback(Conn, PacketId) ->
     emqx_nifmq_nif:conn_puback(Conn, PacketId).
+
+-doc """
+Read the socket natively from now on. The owner must not read the socket after this call.
+""".
+-spec read_native(conn()) -> ok.
+read_native(Conn) ->
+    emqx_nifmq_nif:conn_read_native(Conn).
 
 -doc "Send an encoded packet after the packets that are already queued.".
 -spec send(conn(), iodata()) -> ok | {error, closed}.

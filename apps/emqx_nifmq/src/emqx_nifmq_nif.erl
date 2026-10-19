@@ -23,6 +23,7 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     conn_dispatch/2,
     conn_dispatch_cont/1,
     conn_puback/2,
+    conn_read_native/1,
     conn_send/2,
     conn_close/1,
     conn_set_mode/2,
@@ -47,6 +48,7 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     conn_dispatch/2,
     conn_dispatch_cont/1,
     conn_puback/2,
+    conn_read_native/1,
     conn_send/2,
     conn_close/1,
     conn_set_mode/2,
@@ -79,6 +81,7 @@ conn_unsubscribe(_Conn, _Filter) -> ?NOT_LOADED.
 conn_dispatch(_Filter, _Parts) -> ?NOT_LOADED.
 conn_dispatch_cont(_Cont) -> ?NOT_LOADED.
 conn_puback(_Conn, _PacketId) -> ?NOT_LOADED.
+conn_read_native(_Conn) -> ?NOT_LOADED.
 conn_send(_Conn, _Data) -> ?NOT_LOADED.
 conn_close(_Conn) -> ?NOT_LOADED.
 conn_set_mode(_Mode, _K) -> ?NOT_LOADED.

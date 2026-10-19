@@ -14,10 +14,17 @@
 //! other caller writes. All fields of one connection change only under its mutex.
 //! Lock order: connection mutex, then a poller's `armed` map. A poller thread never holds
 //! the `armed` map while it takes a connection mutex.
+//!
+//! With `conn_read_native/1`, the poller thread also reads the socket. It handles each
+//! PUBACK in place (free the window slot, refill, write) and sends all other bytes to the
+//! owner as `{nifmq_data, Conn, Bytes}`. At end of stream or on a read error it sends
+//! `{nifmq_closed, Conn, Reason}`. The reader uses a second `dup()` copy of the socket,
+//! registered for `EPOLLIN` on the same poller.
 
 use rustler::sys::enif_consume_timeslice;
 use rustler::{
-    Binary, Encoder, Env, Error, LocalPid, Monitor, NifResult, Resource, ResourceArc, Term,
+    Binary, Encoder, Env, Error, LocalPid, Monitor, NifResult, OwnedBinary, OwnedEnv, Resource,
+    ResourceArc, Term,
 };
 use std::collections::{HashMap, VecDeque};
 use std::os::raw::c_int;
@@ -49,6 +56,15 @@ mod atoms {
         mqueue,
         out_bytes,
         armed,
+        reads,
+        native_pubacks,
+        unknown_pubacks,
+        nifmq_data,
+        nifmq_closed,
+        eof,
+        malformed,
+        read_error,
+        native_read,
     }
 }
 
@@ -57,6 +73,9 @@ const MAX_IOV: usize = 256;
 const CHUNK_INLINE: usize = 64;
 const CHUNK_THREADS: usize = 256;
 const EVFD_TOKEN: u64 = u64::MAX;
+/// Set in the epoll token of a reader fd.
+const READ_BIT: u64 = 1 << 32;
+const READ_BUF: usize = 64 * 1024;
 
 struct Stats {
     packets: AtomicU64,
@@ -70,6 +89,9 @@ struct Stats {
     queued_qos1: AtomicU64,
     thread_flushes: AtomicU64,
     conns: AtomicU64,
+    reads: AtomicU64,
+    native_pubacks: AtomicU64,
+    unknown_pubacks: AtomicU64,
 }
 
 static STATS: Stats = Stats {
@@ -84,6 +106,9 @@ static STATS: Stats = Stats {
     queued_qos1: AtomicU64::new(0),
     thread_flushes: AtomicU64::new(0),
     conns: AtomicU64::new(0),
+    reads: AtomicU64::new(0),
+    native_pubacks: AtomicU64::new(0),
+    unknown_pubacks: AtomicU64::new(0),
 };
 
 /// 0 = inline, otherwise the number of active poller threads that flush.
@@ -273,6 +298,10 @@ struct ConnInner {
     next_id: u16,
     mqueue: VecDeque<Pending>,
     filters: Vec<Vec<u8>>,
+    /// Reader copy of the socket, or -1 when the owner reads.
+    rfd: c_int,
+    /// Received bytes that do not make a full packet yet.
+    rbuf: Vec<u8>,
 }
 
 pub struct Conn {
@@ -298,6 +327,10 @@ impl Drop for Conn {
                 unsafe { libc::close(inner.fd) };
                 inner.fd = -1;
             }
+            if inner.rfd >= 0 {
+                unsafe { libc::close(inner.rfd) };
+                inner.rfd = -1;
+            }
         }
         STATS.conns.fetch_sub(1, Ordering::Relaxed);
     }
@@ -321,6 +354,7 @@ impl Conn {
                 unsafe { libc::close(inner.fd) };
                 inner.fd = -1;
             }
+            Self::stop_reader(self.poller, &mut inner);
             inner.closed = true;
             inner.out.clear();
             inner.out_bytes = 0;
@@ -383,6 +417,34 @@ impl Conn {
             inc(&STATS.dropped_qos1, 1);
             true
         }
+    }
+
+    /// Deregister and close the reader copy of the socket. The caller holds the mutex.
+    fn stop_reader(poller: usize, inner: &mut ConnInner) {
+        if inner.rfd >= 0 {
+            pollers()[poller].del_reader(inner.rfd);
+            unsafe { libc::close(inner.rfd) };
+            inner.rfd = -1;
+            inner.rbuf = Vec::new();
+        }
+    }
+
+    /// Free the window slot of `pkt_id` and refill the window from the queue.
+    fn ack(&self, inner: &mut ConnInner, pkt_id: u16) -> bool {
+        let pos = inner
+            .inflight
+            .iter()
+            .position(|(i, m)| *i == pkt_id && m.is_some());
+        let Some(pos) = pos else {
+            return false;
+        };
+        inner.inflight[pos].1 = None;
+        inner.inflight_cnt -= 1;
+        while matches!(inner.inflight.front(), Some((_, None))) {
+            inner.inflight.pop_front();
+        }
+        self.refill(inner);
+        true
     }
 
     fn refill(&self, inner: &mut ConnInner) {
@@ -531,6 +593,53 @@ struct Poller {
     evfd: c_int,
     ready: Mutex<Vec<ResourceArc<Conn>>>,
     armed: Mutex<HashMap<c_int, ResourceArc<Conn>>>,
+    readers: Mutex<HashMap<c_int, ResourceArc<Conn>>>,
+}
+
+/// Why the native reader stopped.
+enum ReadEnd {
+    Eof,
+    Malformed,
+    Error,
+}
+
+/// Split complete packets off `buf`: collect PUBACK packet identifiers in `acks` and copy
+/// all other packets to `fwd`. Return the number of bytes consumed.
+fn parse_in(buf: &[u8], acks: &mut Vec<u16>, fwd: &mut Vec<u8>) -> Result<usize, ReadEnd> {
+    let mut at = 0;
+    loop {
+        let rest = &buf[at..];
+        if rest.len() < 2 {
+            return Ok(at);
+        }
+        let mut len = 0usize;
+        let mut mult = 1usize;
+        let mut i = 1;
+        loop {
+            if i > 4 {
+                return Err(ReadEnd::Malformed);
+            }
+            let Some(&b) = rest.get(i) else {
+                return Ok(at);
+            };
+            len += (b & 0x7f) as usize * mult;
+            mult *= 128;
+            i += 1;
+            if b & 0x80 == 0 {
+                break;
+            }
+        }
+        let total = i + len;
+        if rest.len() < total {
+            return Ok(at);
+        }
+        if rest[0] >> 4 == 4 && len >= 2 {
+            acks.push(u16::from_be_bytes([rest[i], rest[i + 1]]));
+        } else {
+            fwd.extend_from_slice(&rest[..total]);
+        }
+        at += total;
+    }
 }
 
 impl Poller {
@@ -543,6 +652,94 @@ impl Poller {
         let r = unsafe { libc::epoll_ctl(self.epfd, libc::EPOLL_CTL_ADD, fd, &mut ev) };
         if r < 0 {
             unsafe { libc::epoll_ctl(self.epfd, libc::EPOLL_CTL_MOD, fd, &mut ev) };
+        }
+    }
+
+    fn add_reader(&self, conn: ResourceArc<Conn>, rfd: c_int) {
+        self.readers.lock().unwrap().insert(rfd, conn);
+        let mut ev = libc::epoll_event {
+            events: libc::EPOLLIN as u32,
+            u64: rfd as u64 | READ_BIT,
+        };
+        unsafe { libc::epoll_ctl(self.epfd, libc::EPOLL_CTL_ADD, rfd, &mut ev) };
+    }
+
+    fn del_reader(&self, rfd: c_int) {
+        unsafe { libc::epoll_ctl(self.epfd, libc::EPOLL_CTL_DEL, rfd, std::ptr::null_mut()) };
+        self.readers.lock().unwrap().remove(&rfd);
+    }
+
+    /// Read once from the socket. Handle PUBACKs here; send the rest to the owner.
+    fn read_one(&self, conn: &ResourceArc<Conn>, rfd: c_int) {
+        let mut acks = Vec::new();
+        let mut fwd = Vec::new();
+        let end = {
+            let mut inner = conn.inner.lock().unwrap();
+            if inner.closed || inner.rfd != rfd {
+                return;
+            }
+            let old = inner.rbuf.len();
+            inner.rbuf.resize(old + READ_BUF, 0);
+            let n = unsafe {
+                libc::read(
+                    rfd,
+                    inner.rbuf[old..].as_mut_ptr() as *mut libc::c_void,
+                    READ_BUF,
+                )
+            };
+            inc(&STATS.reads, 1);
+            let end = if n < 0 {
+                inner.rbuf.truncate(old);
+                match std::io::Error::last_os_error().raw_os_error() {
+                    Some(libc::EAGAIN) | Some(libc::EINTR) => return,
+                    _ => Some(ReadEnd::Error),
+                }
+            } else if n == 0 {
+                inner.rbuf.truncate(old);
+                Some(ReadEnd::Eof)
+            } else {
+                inner.rbuf.truncate(old + n as usize);
+                match parse_in(&inner.rbuf, &mut acks, &mut fwd) {
+                    Ok(used) => {
+                        inner.rbuf.drain(..used);
+                        None
+                    }
+                    Err(e) => Some(e),
+                }
+            };
+            for id in &acks {
+                if conn.ack(&mut inner, *id) {
+                    inc(&STATS.native_pubacks, 1);
+                } else {
+                    inc(&STATS.unknown_pubacks, 1);
+                }
+            }
+            if !acks.is_empty() && !inner.closed && !inner.armed && !inner.out.is_empty() {
+                let r = Conn::flush_locked(&mut inner);
+                after_flush(conn, &mut inner, r);
+            }
+            if end.is_some() {
+                Conn::stop_reader(conn.poller, &mut inner);
+            }
+            end
+        };
+        let mut env = OwnedEnv::new();
+        if !fwd.is_empty() {
+            let _ = env.send_and_clear(&conn.owner, |env| {
+                let mut b = OwnedBinary::new(fwd.len()).expect("alloc");
+                b.as_mut_slice().copy_from_slice(&fwd);
+                (atoms::nifmq_data(), conn.clone(), b.release(env)).encode(env)
+            });
+        }
+        if let Some(e) = end {
+            let reason = match e {
+                ReadEnd::Eof => atoms::eof(),
+                ReadEnd::Malformed => atoms::malformed(),
+                ReadEnd::Error => atoms::read_error(),
+            };
+            let _ = env.send_and_clear(&conn.owner, |env| {
+                (atoms::nifmq_closed(), conn.clone(), reason).encode(env)
+            });
         }
     }
 
@@ -582,7 +779,13 @@ impl Poller {
             }
             for ev in &events[..n as usize] {
                 let token = ev.u64;
-                if token == EVFD_TOKEN {
+                if token != EVFD_TOKEN && token & READ_BIT != 0 {
+                    let rfd = (token & 0xffff_ffff) as c_int;
+                    let conn = self.readers.lock().unwrap().get(&rfd).cloned();
+                    if let Some(conn) = conn {
+                        self.read_one(&conn, rfd);
+                    }
+                } else if token == EVFD_TOKEN {
                     let mut buf: u64 = 0;
                     unsafe { libc::read(self.evfd, &mut buf as *mut u64 as *mut libc::c_void, 8) };
                     let batch = std::mem::take(&mut *self.ready.lock().unwrap());
@@ -628,6 +831,7 @@ fn pollers() -> &'static Vec<Poller> {
                     evfd,
                     ready: Mutex::new(Vec::new()),
                     armed: Mutex::new(HashMap::new()),
+                    readers: Mutex::new(HashMap::new()),
                 }
             })
             .collect()
@@ -768,6 +972,8 @@ fn conn_attach(env: Env, fd: c_int, opts: AttachOpts) -> NifResult<ResourceArc<C
             next_id: 1,
             mqueue: VecDeque::new(),
             filters: Vec::new(),
+            rfd: -1,
+            rbuf: Vec::new(),
         }),
     });
     inc(&STATS.conns, 1);
@@ -881,19 +1087,9 @@ fn conn_dispatch_cont<'a>(env: Env<'a>, cont: ResourceArc<DispatchCont>) -> Term
 #[rustler::nif]
 fn conn_puback<'a>(env: Env<'a>, conn: ResourceArc<Conn>, pkt_id: u16) -> Term<'a> {
     let mut inner = conn.inner.lock().unwrap();
-    let pos = inner
-        .inflight
-        .iter()
-        .position(|(i, m)| *i == pkt_id && m.is_some());
-    let Some(pos) = pos else {
+    if !conn.ack(&mut inner, pkt_id) {
         return (atoms::error(), atoms::not_found()).encode(env);
-    };
-    inner.inflight[pos].1 = None;
-    inner.inflight_cnt -= 1;
-    while matches!(inner.inflight.front(), Some((_, None))) {
-        inner.inflight.pop_front();
     }
-    conn.refill(&mut inner);
     let wake = kick(&conn, &mut inner);
     drop(inner);
     if wake {
@@ -916,6 +1112,25 @@ fn conn_send<'a>(env: Env<'a>, conn: ResourceArc<Conn>, data: Binary<'a>) -> Ter
         pollers()[conn.poller].push(conn.clone());
     }
     atoms::ok().encode(env)
+}
+
+/// Let the poller thread read the socket from now on. The owner must stop reading it.
+#[rustler::nif]
+fn conn_read_native(conn: ResourceArc<Conn>) -> NifResult<rustler::Atom> {
+    let mut inner = conn.inner.lock().unwrap();
+    if inner.closed || inner.rfd >= 0 {
+        return Err(Error::BadArg);
+    }
+    let rfd = unsafe { libc::dup(inner.fd) };
+    if rfd < 0 {
+        return Err(Error::BadArg);
+    }
+    unsafe {
+        libc::fcntl(rfd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+    inner.rfd = rfd;
+    pollers()[conn.poller].add_reader(conn.clone(), rfd);
+    Ok(atoms::ok())
 }
 
 #[rustler::nif]
@@ -951,6 +1166,10 @@ fn conn_info(env: Env, conn: ResourceArc<Conn>) -> NifResult<Term> {
         (atoms::out_bytes().encode(env), inner.out_bytes.encode(env)),
         (atoms::armed().encode(env), inner.armed.encode(env)),
         (atoms::closed().encode(env), inner.closed.encode(env)),
+        (
+            atoms::native_read().encode(env),
+            (inner.rfd >= 0).encode(env),
+        ),
     ];
     Term::map_from_pairs(env, &pairs)
 }
@@ -991,6 +1210,15 @@ fn conn_stats(env: Env) -> NifResult<Term> {
             r(&STATS.thread_flushes).encode(env),
         ),
         (atoms::conns().encode(env), r(&STATS.conns).encode(env)),
+        (atoms::reads().encode(env), r(&STATS.reads).encode(env)),
+        (
+            atoms::native_pubacks().encode(env),
+            r(&STATS.native_pubacks).encode(env),
+        ),
+        (
+            atoms::unknown_pubacks().encode(env),
+            r(&STATS.unknown_pubacks).encode(env),
+        ),
     ];
     Term::map_from_pairs(env, &pairs)
 }

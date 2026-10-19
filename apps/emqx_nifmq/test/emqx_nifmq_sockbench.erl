@@ -15,6 +15,9 @@ The broker node accepts N connections and runs one of these modes:
   writes to every socket. One Erlang process per socket parses PUBACKs and calls
   `emqx_nifmq_conn:puback/2`.
 - `threads2`, `threads4`: the native writer with 2 or 4 poller threads that write.
+- `inline_nr`, `threads2_nr`, `threads4_nr`: as above, and the poller threads also read the
+  sockets and handle PUBACKs natively (`emqx_nifmq_conn:read_native/1`). The Erlang process
+  of a socket wakes up only for other packets.
 
 The client node opens the N connections, counts PUBLISH packets, checks order, records
 latency from a timestamp in the payload, and answers QoS 1 with PUBACK.
@@ -112,6 +115,8 @@ columns() ->
         sched_ns_per_delivery,
         syscw_per_delivery,
         wakeups_per_delivery,
+        vcsw_per_delivery,
+        nvcsw_per_delivery,
         received,
         missing,
         ooo,
@@ -176,7 +181,13 @@ run_cell(Client, Port, Mode, Fanout, PayloadSize, QoS, Rate) ->
 set_mode(erlang) -> ok;
 set_mode(inline) -> emqx_nifmq_conn:set_mode(inline, 1);
 set_mode(threads2) -> emqx_nifmq_conn:set_mode(threads, 2);
-set_mode(threads4) -> emqx_nifmq_conn:set_mode(threads, 4).
+set_mode(threads4) -> emqx_nifmq_conn:set_mode(threads, 4);
+set_mode(inline_nr) -> set_mode(inline);
+set_mode(threads2_nr) -> set_mode(threads2);
+set_mode(threads4_nr) -> set_mode(threads4).
+
+native_read(Mode) ->
+    lists:member(Mode, [inline_nr, threads2_nr, threads4_nr]).
 
 accept_n(_L, 0, _Mode, _QoS, _Wakeups, Acc) ->
     lists:reverse(Acc);
@@ -277,7 +288,7 @@ conn_init(erlang, S, QoS, Wakeups, Parent) ->
         ps = parse_state(),
         sopts = emqx_frame:serialize_opts(?MQTT_PROTO_V5, ?MAX_PACKET_SIZE)
     });
-conn_init(_Native, S, QoS, Wakeups, Parent) ->
+conn_init(Native, S, QoS, Wakeups, Parent) ->
     {ok, Fd} = inet:getfd(S),
     Conn = emqx_nifmq_conn:attach(Fd, #{
         proto_ver => 5,
@@ -287,9 +298,16 @@ conn_init(_Native, S, QoS, Wakeups, Parent) ->
         max_buffer_bytes => 1 bsl 20
     }),
     ok = emqx_nifmq_conn:subscribe(Conn, ?TOPIC, #{qos => QoS}),
-    ok = inet:setopts(S, [{active, ?ACTIVE_N}]),
-    Parent ! {ready, self()},
-    nat_loop(S, Conn, Wakeups, parse_state()).
+    case native_read(Native) of
+        true ->
+            ok = emqx_nifmq_conn:read_native(Conn),
+            Parent ! {ready, self()},
+            nr_loop(S, Conn, Wakeups);
+        false ->
+            ok = inet:setopts(S, [{active, ?ACTIVE_N}]),
+            Parent ! {ready, self()},
+            nat_loop(S, Conn, Wakeups, parse_state())
+    end.
 
 parse_state() ->
     emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5, expect_connect => false}).
@@ -366,6 +384,17 @@ nat_loop(S, Conn, W, PS) ->
             emqx_nifmq_conn:close(Conn)
     end.
 
+%% The socket stays passive: the native reader handles PUBACKs and the client sends
+%% nothing else.
+nr_loop(S, Conn, W) ->
+    receive
+        {nifmq_data, Conn, _Data} ->
+            counters:add(W, 1, 1),
+            nr_loop(S, Conn, W);
+        {nifmq_closed, Conn, _Reason} ->
+            emqx_nifmq_conn:close(Conn)
+    end.
+
 parse_pubacks(Data, PS, Acc) ->
     case emqx_frame:parse(Data, PS) of
         {#mqtt_packet{variable = #mqtt_packet_puback{packet_id = Id}}, Rest, PS1} ->
@@ -389,6 +418,28 @@ proc_syscw() ->
     {match, [N]} = re:run(Bin, "syscw: (\\d+)", [{capture, all_but_first, binary}]),
     binary_to_integer(N).
 
+%% Voluntary and involuntary context switches, summed over all threads of the node.
+proc_ctxsw() ->
+    {ok, Tids} = file:list_dir("/proc/self/task"),
+    lists:foldl(
+        fun(Tid, {V, N}) ->
+            case file:read_file(["/proc/self/task/", Tid, "/status"]) of
+                {ok, Bin} ->
+                    {V + status_field(Bin, "voluntary"), N + status_field(Bin, "nonvoluntary")};
+                {error, _} ->
+                    {V, N}
+            end
+        end,
+        {0, 0},
+        Tids
+    ).
+
+status_field(Bin, Name) ->
+    {match, [X]} = re:run(Bin, ["\n", Name, "_ctxt_switches:\\s+(\\d+)"], [
+        {capture, all_but_first, binary}
+    ]),
+    binary_to_integer(X).
+
 native_dropped() ->
     try emqx_nifmq_conn:stats() of
         #{dropped_qos0 := D0, dropped_qos1 := D1} -> D0 + D1
@@ -403,6 +454,7 @@ sys_snapshot(Wakeups) ->
         syscw => proc_syscw(),
         sched => scheduler:get_sample_all(),
         wakeups => counters:get(Wakeups, 1),
+        ctxsw => proc_ctxsw(),
         dropped => native_dropped()
     }.
 
@@ -413,12 +465,16 @@ sys_delta(S0, S1, Deliveries0) ->
     [{total, _, _} | Per] = scheduler:utilization(Sc0, Sc1),
     BusyNs = lists:sum([U * (T1 - T0) * 1000 || {Type, _, U, _} <- Per, Type =/= io]),
     D = fun(K) -> maps:get(K, S1) - maps:get(K, S0) end,
+    {V0, N0} = maps:get(ctxsw, S0),
+    {V1, N1} = maps:get(ctxsw, S1),
     #{
         achieved_rate => Deliveries0 * 1_000_000 / (T1 - T0),
         cpu_ns_per_delivery => D(cpu) * 1_000_000 / Deliveries,
         sched_ns_per_delivery => BusyNs / Deliveries,
         syscw_per_delivery => D(syscw) / Deliveries,
         wakeups_per_delivery => D(wakeups) / Deliveries,
+        vcsw_per_delivery => (V1 - V0) / Deliveries,
+        nvcsw_per_delivery => (N1 - N0) / Deliveries,
         native_dropped => D(dropped)
     }.
 

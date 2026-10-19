@@ -9,6 +9,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 suite() -> [{timetrap, {minutes, 2}}].
 
@@ -49,14 +50,25 @@ pair(AttachOpts, ClientOpts) ->
         {ok, Fd} = inet:getfd(Server),
         Conn = emqx_nifmq_conn:attach(Fd, AttachOpts),
         Parent ! {attached, self(), Conn},
-        receive
-            stop -> gen_tcp:close(Server)
-        end
+        owner_loop(Parent, Server)
     end),
     ok = gen_tcp:controlling_process(Server, Owner),
     Owner ! go,
     receive
         {attached, Owner, Conn} -> {Conn, Owner, Client}
+    end.
+
+%% Forward the messages of the native reader to the test process.
+owner_loop(Parent, Server) ->
+    receive
+        stop ->
+            gen_tcp:close(Server);
+        {nifmq_data, _, _} = M ->
+            Parent ! {owner, M},
+            owner_loop(Parent, Server);
+        {nifmq_closed, _, _} = M ->
+            Parent ! {owner, M},
+            owner_loop(Parent, Server)
     end.
 
 v5() ->
@@ -285,3 +297,48 @@ t_threads_mode(_Config) ->
         Pairs
     ),
     ?assert(maps:get(thread_flushes, emqx_nifmq_conn:stats()) > Flushes0).
+
+-doc """
+With the native reader, a PUBACK frees the window slot without the owner, also when it
+arrives one byte at a time. Other packets go to the owner.
+""".
+t_native_read_puback(_Config) ->
+    F = filter(),
+    {Conn, Owner, C} = pair((v5())#{window => 2}),
+    ok = emqx_nifmq_conn:subscribe(Conn, F, #{qos => 1}),
+    ok = emqx_nifmq_conn:read_native(Conn),
+    ?assertMatch(#{native_read := true}, emqx_nifmq_conn:info(Conn)),
+    [1 = emqx_nifmq_conn:dispatch(F, parts(F, <<I:32>>, 1)) || I <- lists:seq(1, 5)],
+    [#{id := Id1}, #{id := Id2}] = [pub_fields(P) || P <- recv_packets(C, 2, 5)],
+    assert_silent(C, 200),
+    PingReq = iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGREQ), 5)),
+    ok = gen_tcp:send(C, [emqx_frame:serialize(?PUBACK_PACKET(Id1), 5), PingReq]),
+    [#{id := Id3, payload := <<3:32>>}] = [pub_fields(P) || P <- recv_packets(C, 1, 5)],
+    receive
+        {owner, {nifmq_data, Conn, Data}} -> ?assertEqual(PingReq, iolist_to_binary(Data))
+    after 5000 -> ct:fail(no_forwarded_data)
+    end,
+    Acks = iolist_to_binary([emqx_frame:serialize(?PUBACK_PACKET(Id), 5) || Id <- [Id2, Id3]]),
+    [ok = gen_tcp:send(C, <<B>>) || <<B>> <= Acks],
+    Rest = [pub_fields(P) || P <- recv_packets(C, 2, 5)],
+    ?assertEqual([<<4:32>>, <<5:32>>], [maps:get(payload, P) || P <- Rest]),
+    ok = gen_tcp:send(C, [emqx_frame:serialize(?PUBACK_PACKET(Id), 5) || #{id := Id} <- Rest]),
+    ?retry(50, 100, ?assertMatch(#{inflight := 0, mqueue := 0}, emqx_nifmq_conn:info(Conn))),
+    ok = gen_tcp:close(C),
+    receive
+        {owner, {nifmq_closed, Conn, eof}} -> ok
+    after 5000 -> ct:fail(no_close)
+    end,
+    ?assertMatch(#{native_read := false}, emqx_nifmq_conn:info(Conn)),
+    Owner ! stop.
+
+-doc "The native reader stops on a malformed remaining length and tells the owner.".
+t_native_read_malformed(_Config) ->
+    {Conn, Owner, C} = pair(v5()),
+    ok = emqx_nifmq_conn:read_native(Conn),
+    ok = gen_tcp:send(C, <<16#40, 255, 255, 255, 255, 1>>),
+    receive
+        {owner, {nifmq_closed, Conn, malformed}} -> ok
+    after 5000 -> ct:fail(no_close)
+    end,
+    Owner ! stop.

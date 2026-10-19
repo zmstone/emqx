@@ -77,8 +77,8 @@ run(Out, Reps, Modes, Fanouts, Payloads, QoSs, Rates, Client) ->
      || R <- lists:seq(1, Reps), F <- Fanouts, P <- Payloads, Q <- QoSs, Rate <- Rates, M <- Modes
     ],
     lists:foldl(
-        fun({R, M, F, P, Q, Rate}, I) ->
-            Row = run_cell(Client, ?PORT_BASE + I rem 8, M, F, P, Q, Rate),
+        fun({R, M, F, P, Q, Rate}, I0) ->
+            {Row, I} = run_cell_retry(Client, I0, M, F, P, Q, Rate),
             Line = [to_s(maps:get(K, Row#{rep => R})) || K <- columns()],
             ok = file:write_file(Out, [lists:join(",", Line), "\n"], [append]),
             io:format("~p~n", [Row#{rep => R}]),
@@ -128,6 +128,21 @@ columns() ->
         host_avail_gb
     ].
 
+%% Give a cell a second chance on the next port when not all connections arrive.
+run_cell_retry(Client, I, M, F, P, Q, Rate) ->
+    case run_cell(Client, ?PORT_BASE + I rem 8, M, F, P, Q, Rate) of
+        {accept_failed, Got} ->
+            io:format("accept failed: mode=~p fanout=~p got=~p~n~s~n", [
+                M, F, Got, os:cmd("ss -s; ss -tn state syn-recv | wc -l")
+            ]),
+            case run_cell(Client, ?PORT_BASE + (I + 1) rem 8, M, F, P, Q, Rate) of
+                {accept_failed, Got2} -> error({accept_failed, M, F, Got2});
+                Row -> {Row, I + 2}
+            end;
+        Row ->
+            {Row, I + 1}
+    end.
+
 to_s(V) when is_float(V) -> float_to_list(V, [{decimals, 3}]);
 to_s(V) when is_integer(V) -> integer_to_list(V);
 to_s(V) when is_atom(V) -> atom_to_list(V).
@@ -146,7 +161,18 @@ run_cell(Client, Port, Mode, Fanout, PayloadSize, QoS, Rate) ->
     ]),
     Wakeups = counters:new(1, [write_concurrency]),
     Coll = erpc:call(Client, ?MODULE, client_start, [{127, 0, 0, 1}, Port, Fanout, QoS, self()]),
-    Subs = accept_n(L, Fanout, Mode, QoS, Wakeups, []),
+    case accept_n(L, Fanout, Mode, QoS, Wakeups, []) of
+        {error, Accepted} ->
+            [exit(S, kill) || S <- Accepted],
+            ok = gen_tcp:close(L),
+            ok = erpc:call(Client, ?MODULE, client_stop, [Coll]),
+            timer:sleep(1000),
+            {accept_failed, length(Accepted)};
+        Subs ->
+            measure_cell(Client, L, Coll, Subs, Wakeups, Mode, Fanout, PayloadSize, QoS, Rate)
+    end.
+
+measure_cell(Client, L, Coll, Subs, Wakeups, Mode, Fanout, PayloadSize, QoS, Rate) ->
     MsgRate = Rate / Fanout,
     Pub = spawn_link(fun() -> publisher(Mode, Subs, PayloadSize, QoS, MsgRate) end),
     timer:sleep(?WARMUP_MS),
@@ -192,7 +218,12 @@ native_read(Mode) ->
 accept_n(_L, 0, _Mode, _QoS, _Wakeups, Acc) ->
     lists:reverse(Acc);
 accept_n(L, N, Mode, QoS, Wakeups, Acc) ->
-    {ok, S} = gen_tcp:accept(L, 30000),
+    case gen_tcp:accept(L, 30000) of
+        {ok, S} -> accept_one(L, S, N, Mode, QoS, Wakeups, Acc);
+        {error, timeout} -> {error, Acc}
+    end.
+
+accept_one(L, S, N, Mode, QoS, Wakeups, Acc) ->
     Self = self(),
     Pid = spawn(fun() ->
         receive

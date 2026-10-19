@@ -17,6 +17,17 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     drain_view/2,
     set_congested/2,
     queue_info/1,
+    conn_attach/2,
+    conn_subscribe/3,
+    conn_unsubscribe/2,
+    conn_dispatch/2,
+    conn_dispatch_cont/1,
+    conn_puback/2,
+    conn_send/2,
+    conn_close/1,
+    conn_set_mode/2,
+    conn_info/1,
+    conn_stats/0,
     info/0
 ]).
 
@@ -30,6 +41,17 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     drain_view/2,
     set_congested/2,
     queue_info/1,
+    conn_attach/2,
+    conn_subscribe/3,
+    conn_unsubscribe/2,
+    conn_dispatch/2,
+    conn_dispatch_cont/1,
+    conn_puback/2,
+    conn_send/2,
+    conn_close/1,
+    conn_set_mode/2,
+    conn_info/1,
+    conn_stats/0,
     info/0
 ]).
 
@@ -51,3 +73,14 @@ drain_view(_Q, _Max) -> ?NOT_LOADED.
 set_congested(_Q, _Bool) -> ?NOT_LOADED.
 queue_info(_Q) -> ?NOT_LOADED.
 info() -> ?NOT_LOADED.
+conn_attach(_Fd, _Opts) -> ?NOT_LOADED.
+conn_subscribe(_Conn, _Filter, _SubOpts) -> ?NOT_LOADED.
+conn_unsubscribe(_Conn, _Filter) -> ?NOT_LOADED.
+conn_dispatch(_Filter, _Parts) -> ?NOT_LOADED.
+conn_dispatch_cont(_Cont) -> ?NOT_LOADED.
+conn_puback(_Conn, _PacketId) -> ?NOT_LOADED.
+conn_send(_Conn, _Data) -> ?NOT_LOADED.
+conn_close(_Conn) -> ?NOT_LOADED.
+conn_set_mode(_Mode, _K) -> ?NOT_LOADED.
+conn_info(_Conn) -> ?NOT_LOADED.
+conn_stats() -> ?NOT_LOADED.

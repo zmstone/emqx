@@ -513,4 +513,6 @@ fn info(env: Env) -> NifResult<Term> {
     Term::map_from_pairs(env, &pairs)
 }
 
+mod conn;
+
 rustler::init!("emqx_nifmq_nif");

@@ -14,6 +14,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_config.hrl").
 -include("emqx_instr.hrl").
+-include("emqx_chan_info.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -24,6 +25,7 @@
 
 -export([
     info/1,
+    chan_info/1,
     info/2,
     restore_derivable_peer_fields/2,
     get_mqtt_conf/2,
@@ -208,6 +210,74 @@ info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
 
 chan_info_session(Session) ->
     emqx_session:chan_info(Session).
+
+%% The stored `clientinfo` leaves out the derivable peer fields, and `clientid` and `username`
+%% when they equal the `conninfo` values held in the record; `emqx_cm:chan_info_to_map/1` puts
+%% them back.
+chan_info_clientinfo(ClientInfo, ClientId, Username) ->
+    Keys0 = [peerhost, peerport, peername, sockport],
+    Keys1 =
+        case ClientInfo of
+            #{clientid := ClientId} -> [clientid | Keys0];
+            _ -> Keys0
+        end,
+    Keys =
+        case ClientInfo of
+            #{username := Username} -> [username | Keys1];
+            _ -> Keys1
+        end,
+    maps:without(Keys, ClientInfo).
+
+%% @doc The flat row of the channel info table; same content as `info/1`.
+-spec chan_info(channel()) -> #chan_info{}.
+chan_info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        clientid := ClientId,
+        username := Username,
+        peername := Peername,
+        sockname := Sockname,
+        socktype := SockType,
+        conn_mod := ConnMod,
+        proto_name := ProtoName,
+        proto_ver := ProtoVer,
+        clean_start := CleanStart,
+        keepalive := Keepalive,
+        receive_maximum := ReceiveMaximum,
+        expiry_interval := ExpiryInterval,
+        connected_at := ConnectedAt
+    } = ConnInfo,
+    Sess =
+        case Session of
+            undefined -> #{};
+            _ -> emqx_session:chan_info(Session)
+        end,
+    #chan_info{
+        conn_state = info(conn_state, Channel),
+        clientinfo = chan_info_clientinfo(info(clientinfo, Channel), ClientId, Username),
+        clientid = ClientId,
+        username = Username,
+        peername = Peername,
+        sockname = Sockname,
+        socktype = SockType,
+        conn_mod = ConnMod,
+        proto_name = ProtoName,
+        proto_ver = ProtoVer,
+        clean_start = CleanStart,
+        keepalive = Keepalive,
+        receive_maximum = ReceiveMaximum,
+        expiry_interval = ExpiryInterval,
+        connected_at = ConnectedAt,
+        disconnected_at = maps:get(disconnected_at, ConnInfo, undefined),
+        session_impl = maps:get(impl, Sess, undefined),
+        created_at = maps:get(created_at, Sess, undefined),
+        is_persistent = maps:get(is_persistent, Sess, undefined),
+        durable = maps:get(durable, Sess, undefined),
+        subscriptions_max = maps:get(subscriptions_max, Sess, undefined),
+        awaiting_rel_max = maps:get(awaiting_rel_max, Sess, undefined),
+        inflight_max = maps:get(inflight_max, Sess, undefined),
+        mqueue_max = maps:get(mqueue_max, Sess, undefined),
+        n_streams = maps:get(n_streams, Sess, undefined)
+    }.
 
 %% `clientinfo' keeps these so that authn, authz and hooks can reach them without
 %% `conninfo'. The info map already carries `conninfo', so a reader can derive them
@@ -1912,7 +1982,7 @@ handle_cast(
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    emqx_cm:set_chan_info(ClientId, info(NChannel)),
+    emqx_cm:set_chan_info(ClientId, chan_info(NChannel)),
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),

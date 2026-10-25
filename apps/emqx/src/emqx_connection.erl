@@ -670,11 +670,11 @@ handle_msg(
         ),
     ClientId = emqx_channel:info(clientid, Channel),
     ok = set_chan_stats(State),
-    emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
+    emqx_cm:insert_channel_info(ClientId, emqx_channel:chan_info(Channel), emqx_chan_stats:ref()),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:set_chan_info(ClientId, emqx_channel:chan_info(Channel)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
     State = init_zone_specific_state(NewZone, State0),

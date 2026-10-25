@@ -8,6 +8,7 @@
 -behaviour(gen_server).
 
 -include("emqx_cm.hrl").
+-include("emqx_chan_info.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
@@ -22,6 +23,7 @@
     unregister_channel/1,
     unregister_channel/2,
     insert_channel_info/3,
+    chan_info_to_map/1,
     is_monitored/1
 ]).
 
@@ -233,10 +235,63 @@ get_chan_info(ClientId) ->
 do_get_chan_info(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
-        ets:lookup_element(?CHAN_INFO_TAB, Chan, 2)
+        chan_info_to_map(ets:lookup_element(?CHAN_INFO_TAB, Chan, 2))
     catch
         error:badarg -> undefined
     end.
+
+%% @doc The nested info map of a stored row. A row written as a map is returned as is.
+-spec chan_info_to_map(#chan_info{} | emqx_types:infos()) -> emqx_types:infos().
+chan_info_to_map(#chan_info{} = R) ->
+    ConnInfo0 = #{
+        clientid => R#chan_info.clientid,
+        username => R#chan_info.username,
+        peername => R#chan_info.peername,
+        sockname => R#chan_info.sockname,
+        socktype => R#chan_info.socktype,
+        conn_mod => R#chan_info.conn_mod,
+        proto_name => R#chan_info.proto_name,
+        proto_ver => R#chan_info.proto_ver,
+        clean_start => R#chan_info.clean_start,
+        keepalive => R#chan_info.keepalive,
+        receive_maximum => R#chan_info.receive_maximum,
+        expiry_interval => R#chan_info.expiry_interval,
+        connected_at => R#chan_info.connected_at
+    },
+    ConnInfo = put_defined(disconnected_at, R#chan_info.disconnected_at, ConnInfo0),
+    Session =
+        case R#chan_info.session_impl of
+            undefined ->
+                undefined;
+            Impl ->
+                Sess0 = #{
+                    impl => Impl,
+                    created_at => R#chan_info.created_at,
+                    is_persistent => R#chan_info.is_persistent,
+                    durable => R#chan_info.durable,
+                    subscriptions_max => R#chan_info.subscriptions_max,
+                    awaiting_rel_max => R#chan_info.awaiting_rel_max,
+                    inflight_max => R#chan_info.inflight_max
+                },
+                Sess1 = put_defined(mqueue_max, R#chan_info.mqueue_max, Sess0),
+                put_defined(n_streams, R#chan_info.n_streams, Sess1)
+        end,
+    %% The stored clientinfo holds clientid and username only when they differ from conninfo.
+    ClientInfo = maps:merge(
+        #{clientid => R#chan_info.clientid, username => R#chan_info.username},
+        R#chan_info.clientinfo
+    ),
+    #{
+        conn_state => R#chan_info.conn_state,
+        clientinfo => ClientInfo,
+        conninfo => ConnInfo,
+        session => Session
+    };
+chan_info_to_map(Info) when is_map(Info) ->
+    Info.
+
+put_defined(_Key, undefined, Map) -> Map;
+put_defined(Key, Val, Map) -> Map#{Key => Val}.
 
 -spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
@@ -685,11 +740,15 @@ all_channels_stream(ConnModuleList) ->
         (undefined) -> ets:select(?CHAN_INFO_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
         (Cont) -> ets:select(Cont)
     end),
+    AllChanInfoMapStream = emqx_utils_stream:map(
+        fun({ClientId, ChanPid, Info}) -> {ClientId, ChanPid, chan_info_to_map(Info)} end,
+        AllChanInfoStream
+    ),
     WithModulesFilteredStream = emqx_utils_stream:filter(
         fun({_ClientId, _ChanPid, #{conninfo := #{conn_mod := ConnModule}}}) ->
             sets:is_element(ConnModule, ConnModules)
         end,
-        AllChanInfoStream
+        AllChanInfoMapStream
     ),
     %% Map to the plain tuples
     emqx_utils_stream:map(
@@ -759,13 +818,21 @@ this node.
     [channel_info()].
 lookup_client(Key) ->
     [
-        {Chan, Info, emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)}
+        {Chan, chan_info_to_map(Info),
+            emqx_chan_stats:to_list(StatsRef) ++ emqx_utils:proc_stats(ChanPid)}
      || {{_, ChanPid} = Chan, Info, StatsRef} <- select_client(Key)
     ].
 
 select_client({username, Username}) ->
     MatchSpec = [
-        {{'_', #{clientinfo => #{username => '$1'}}, '_'}, [{'=:=', '$1', Username}], ['$_']}
+        {{'_', #{clientinfo => #{username => '$1'}}, '_'}, [{'=:=', '$1', Username}], ['$_']},
+        %% The stored clientinfo holds username only when it differs from the record field.
+        {{'_', #chan_info{username = '$1', _ = '_'}, '_'}, [{'=:=', '$1', Username}], ['$_']},
+        {
+            {'_', #chan_info{clientinfo = #{username => '$1'}, _ = '_'}, '_'},
+            [{'=:=', '$1', Username}],
+            ['$_']
+        }
     ],
     ets:select(?CHAN_INFO_TAB, MatchSpec);
 select_client({clientid, ClientId}) ->

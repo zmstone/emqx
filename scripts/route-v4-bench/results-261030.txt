@@ -1,0 +1,49 @@
+== start
+ 00:27:12 up 49 days, 10:40, 31 users,  load average: 1.44, 2.03, 1.86
+              total        used        free      shared  buff/cache   available
+Mem:             62          16           2           0          43          44
+Swap:             0           0           0
+mem hash routes=1 v3=1248 bytes (1248.0/route) v4=1240 bytes (1240.0/route) saved=0.6%
+mem selective routes=3 v3=1768 bytes (589.3/route) v4=1512 bytes (504.0/route) saved=14.5%
+mem overlap routes=16 v3=4960 bytes (310.0/route) v4=3264 bytes (204.0/route) saved=34.2%
+mem duplicate_dests routes=64 v3=14944 bytes (233.5/route) v4=9312 bytes (145.5/route) saved=37.7%
+mem long_plus routes=16 v3=3936 bytes (246.0/route) v4=3040 bytes (190.0/route) saved=22.8%
+mem long_overlap routes=16 v3=6240 bytes (390.0/route) v4=3648 bytes (228.0/route) saved=41.5%
+mem long_literal routes=1 v3=1488 bytes (1488.0/route) v4=1280 bytes (1280.0/route) saved=14.0%
+mem sparse_1000 routes=1000 v3=209120 bytes (209.1/route) v4=129048 bytes (129.0/route) saved=38.3%
+mem empty_levels routes=4 v3=1880 bytes (470.0/route) v4=1624 bytes (406.0/route) saved=13.6%
+mem sys routes=3 v3=1616 bytes (538.7/route) v4=1488 bytes (496.0/route) saved=7.9%
+mem big_dev_hit routes=100000 v3=25521128 bytes (255.2/route) v4=13601120 bytes (136.0/route) saved=46.7%
+mem big_dev_miss routes=100000 v3=25521128 bytes (255.2/route) v4=13601120 bytes (136.0/route) saved=46.7%
+mem big_mix routes=100000 v3=28397520 bytes (284.0/route) v4=16321456 bytes (163.2/route) saved=42.5%
+garbage hash matches=1.0 v3=169 pr19558=27 v4scan=40 v4lens=64 v4words_dec=71 v4words_scan=44 v4words=44
+garbage selective matches=2.0 v3=260 pr19558=175 v4scan=646 v4lens=636 v4words_dec=150 v4words_scan=181 v4words=201
+garbage overlap matches=16.0 v3=900 pr19558=929 v4scan=4260 v4lens=4012 v4words_dec=675 v4words_scan=813 v4words=1017
+garbage duplicate_dests matches=64.0 v3=2712 pr19558=2573 v4scan=1978 v4lens=1985 v4words_dec=1839 v4words_scan=1227 v4words=1239
+garbage long_plus matches=16.0 v3=644 pr19558=522 v4scan=489 v4lens=495 v4words_dec=478 v4words_scan=346 v4words=353
+garbage long_overlap matches=16.0 v3=1122 pr19558=1201 v4scan=7632 v4lens=7384 v4words_dec=795 v4words_scan=933 v4words=1185
+garbage long_literal matches=1.0 v3=193 pr19558=90 v4scan=664 v4lens=670 v4words_dec=91 v4words_scan=109 v4words=121
+garbage sparse_1000 matches=1.0 v3=172 pr19558=155 v4scan=460 v4lens=450 v4words_dec=119 v4words_scan=147 v4words=151
+garbage empty_levels matches=4.0 v3=268 pr19558=162 v4scan=372 v4lens=339 v4words_dec=178 v4words_scan=220 v4words=249
+garbage sys matches=1.0 v3=161 pr19558=70 v4scan=287 v4lens=293 v4words_dec=83 v4words_scan=101 v4words=109
+garbage big_dev_hit matches=1.0 v3=226 pr19558=187 v4scan=475 v4lens=464 v4words_dec=138 v4words_scan=166 v4words=177
+garbage big_dev_miss matches=0.0 v3=216 pr19558=202 v4scan=492 v4lens=475 v4words_dec=130 v4words_scan=155 v4words=155
+garbage big_mix matches=1.0 v3=290 pr19558=232 v4scan=849 v4lens=837 v4words_dec=170 v4words_scan=200 v4words=214
+time hash n=16754 v3=1131(1121-1161) pr19558=380(379-382) v4scan=635(625-635) v4lens=1045(1040-1045) v4words_dec=1189(1189-1206) v4words_scan=583(580-599) v4words=594(594-595)
+time selective n=7318 v3=2698(2650-2712) pr19558=2603(2589-2627) v4scan=4777(4772-4835) v4lens=4872(4793-4877) v4words_dec=3362(3361-3386) v4words_scan=3315(3311-3381) v4words=2550(2541-2555)
+time overlap n=2000 v3=11676(11658-12376) pr19558=15429(15265-15434) v4scan=31494(31241-31496) v4lens=27616(27595-27743) v4words_dec=17979(17849-18005) v4words_scan=18463(18432-18521) v4words=11980(11960-12007)
+time duplicate_dests n=2000 v3=38427(37619-38493) pr19558=34712(34493-35226) v4scan=49287(49175-49304) v4lens=49238(49233-49456) v4words_dec=50131(50057-50138) v4words_scan=15719(15696-15885) v4words=15367(15340-15448)
+time long_plus n=2000 v3=11228(11176-11436) pr19558=7284(7284-7327) v4scan=10865(10821-10867) v4lens=10776(10707-11187) v4words_dec=11031(11019-11085) v4words_scan=5043(5001-5104) v4words=4729(4729-4766)
+time long_overlap n=2000 v3=20786(20658-20898) pr19558=24034(23926-24990) v4scan=56940(56804-57441) v4lens=49582(49554-50089) v4words_dec=28149(28113-28167) v4words_scan=29962(29922-30045) v4words=18448(18428-18491)
+time long_literal n=4239 v3=4694(4664-4728) pr19558=1486(1471-1491) v4scan=4153(4089-4368) v4lens=4986(4915-5170) v4words_dec=3294(3254-3327) v4words_scan=3196(3175-3249) v4words=2041(2020-2057)
+time sparse_1000 n=6343 v3=3159(3131-3166) pr19558=3368(3359-3380) v4scan=3563(3559-3579) v4lens=3641(3630-3642) v4words_dec=2661(2643-2662) v4words_scan=2640(2636-2645) v4words=2227(2214-2248)
+time empty_levels n=8192 v3=2409(2401-2431) pr19558=2217(2193-2300) v4scan=4028(4025-4041) v4lens=3932(3921-3936) v4words_dec=3468(3442-3482) v4words_scan=3528(3505-3549) v4words=2568(2552-2586)
+time sys n=14508 v3=1416(1354-1423) pr19558=1141(1131-1175) v4scan=2340(2323-2414) v4lens=2568(2499-2667) v4words_dec=1940(1908-1956) v4words_scan=1904(1870-1917) v4words=1509(1479-1514)
+time big_dev_hit n=3649 v3=4929(4877-5050) pr19558=4954(4906-4988) v4scan=4413(4380-4516) v4lens=4434(4399-4488) v4words_dec=3626(3624-3648) v4words_scan=3572(3534-3764) v4words=3307(3239-3315)
+time big_dev_miss n=3082 v3=5881(5868-5917) pr19558=6194(6184-6220) v4scan=4637(4572-4674) v4lens=4506(4491-4640) v4words_dec=3876(3837-3884) v4words_scan=3824(3792-3839) v4words=3824(3819-3834)
+time big_mix n=3115 v3=5654(5616-5755) pr19558=5800(5698-5818) v4scan=6367(6346-6375) v4lens=6568(6507-6605) v4words_dec=4600(4576-4604) v4words_scan=4530(4473-4593) v4words=4077(4050-4080)
+== end
+ 00:28:50 up 49 days, 10:42, 31 users,  load average: 1.45, 1.84, 1.80
+              total        used        free      shared  buff/cache   available
+Mem:             62          16           2           0          43          44
+Swap:             0           0           0

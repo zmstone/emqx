@@ -97,8 +97,9 @@
 -type batch() :: #{batch_route() => _Operation :: tuple()}.
 -type batch_route() :: {emqx_types:topic(), dest()}.
 
+%% Experiment: the key is `{PackedFilter, Dest}', see `emqx_trie_search_v4'.
 -record(routeidx, {
-    entry :: emqx_topic_index:key(dest()) | {'_', {'$1' | {'_', '$1'}}} | '$1',
+    entry :: emqx_trie_search_v4:key(dest()) | {'_', '$1' | {'_', '$1'}} | '$1',
     unused = [] :: _
 }).
 
@@ -162,23 +163,22 @@ create_tables_v3() ->
             ]}
         ]}
     ]),
-    %% Note: filters look like this:
+    %% Note: filters look like this (experiment, packed filter keys):
     %%
-    %% {binary() | [word()], {ID}} where ID :: node() | {group(), node()}
+    %% {PackedFilter, Dest} where Dest :: node() | {group(), node()}
     %%
     %% Examples:
     %% ```
-    %% {routeidx, {[<<"foo">>,'+',<<"bar">>],    {'emqx@127.0.0.1'}},             []}   % foo/+/bar
-    %% {routeidx, {[<<"foo">>,'#'],              {'emqx@127.0.0.1'}},             []}   % foo/#
-    %% {routeidx, {['#'],                        {{<<"foo">>,'emqx@127.0.0.1'}}}, []}   % $share/foo/#
-    %% {routeidx, {['+',<<"bar">>],              {{<<"foo">>,'emqx@127.0.0.1'}}}, []}}  % $share/foo/+/bar
+    %% {routeidx, {<<"foo",0,2,0,"bar">>, 'emqx@127.0.0.1'},             []}   % foo/+/bar
+    %% {routeidx, {<<"foo",0,1>>,         'emqx@127.0.0.1'},             []}   % foo/#
+    %% {routeidx, {<<1>>,                 {<<"foo">>,'emqx@127.0.0.1'}}, []}   % $share/foo/#
     %% '''
     ok = mria:create_table(?ROUTE_TAB_FILTERS_V3, [
         {merge_table, true},
         {auto_clean, true},
         {node_pattern, [
-            #routeidx{entry = {'_', {'$1'}}, _ = '_'},
-            #routeidx{entry = {'_', {{'_', '$1'}}}, _ = '_'}
+            #routeidx{entry = {'_', '$1'}, _ = '_'},
+            #routeidx{entry = {'_', {'_', '$1'}}, _ = '_'}
         ]},
         {type, ordered_set},
         {rlog_shard, ?ROUTE_SHARD_V3},
@@ -280,7 +280,7 @@ has_routes(Topic) when is_binary(Topic) ->
     ets:member(route_table(), Topic) orelse has_filter_route(Topic).
 
 has_filter_route(Topic) ->
-    case emqx_topic_index:match(Topic, route_filters_table()) of
+    case emqx_topic_index_v4:match(Topic, route_filters_table()) of
         false -> false;
         _Match -> true
     end.
@@ -323,7 +323,7 @@ stream(MatchSpec) ->
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
     Pat = #routeidx{entry = '$1'},
-    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
+    Filters = [emqx_topic_index_v4:get_topic(K) || [K] <- ets:match(route_filters_table(), Pat)],
     list_route_tab_topics() ++ Filters.
 
 -spec stats(n_routes) -> non_neg_integer().
@@ -398,9 +398,9 @@ mria_batch_operation_v2(delete, Topic, Dest) ->
 %%--------------------------------------------------------------------
 
 mria_insert_route_v2(Topic, Dest, Ctx) ->
-    case emqx_trie_search:filter(Topic) of
-        Words when is_list(Words) ->
-            K = emqx_topic_index:make_key(Words, Dest),
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            K = emqx_topic_index_v4:make_key(Topic, Dest),
             mria_filter_tab_insert(K, Ctx);
         false ->
             mria_route_tab_insert(#route{topic = Topic, dest = Dest}, Ctx)
@@ -412,9 +412,9 @@ mria_filter_tab_insert(K, batch) ->
     mnesia:write(route_filters_table(), #routeidx{entry = K}, write).
 
 mria_delete_route_v2(Topic, Dest, Ctx) ->
-    case emqx_trie_search:filter(Topic) of
-        Words when is_list(Words) ->
-            K = emqx_topic_index:make_key(Words, Dest),
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            K = emqx_topic_index_v4:make_key(Topic, Dest),
             mria_filter_tab_delete(K, Ctx);
         false ->
             mria_route_tab_delete(#route{topic = Topic, dest = Dest}, Ctx)
@@ -437,18 +437,18 @@ mria_filter_tab_delete(K, batch) ->
 
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
-        [match_to_route(M) || M <- match_filters(Topic)].
+        [
+            #route{topic = Filter, dest = Dest}
+         || {Filter, Dest} <- emqx_topic_index_v4:match_routes(Topic, route_filters_table())
+        ].
 
 lookup_route_tab(Topic) ->
     ets:lookup(route_table(), Topic).
 
-match_filters(Topic) ->
-    emqx_topic_index:matches(Topic, route_filters_table(), []).
-
 lookup_routes_v2(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            Pat = #routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
+            Pat = #routeidx{entry = emqx_topic_index_v4:make_key(Topic, '$1')},
             [#route{topic = Topic, dest = Dest} || [Dest] <- ets:match(route_filters_table(), Pat)];
         false ->
             lookup_route_tab(Topic)
@@ -457,7 +457,7 @@ lookup_routes_v2(Topic) ->
 has_route_v2(Topic, Dest) ->
     case emqx_topic:wildcard(Topic) of
         true ->
-            ets:member(route_filters_table(), emqx_topic_index:make_key(Topic, Dest));
+            ets:member(route_filters_table(), emqx_topic_index_v4:make_key(Topic, Dest));
         false ->
             has_route_tab_entry(Topic, Dest)
     end.
@@ -472,7 +472,7 @@ cleanup_routes_v2(NodeOrExtDest) ->
                 _ = throw_unsupported(
                     mria:match_delete(
                         ?ROUTE_TAB_FILTERS_V2,
-                        #routeidx{entry = emqx_trie_search:make_pat('_', Pattern)}
+                        #routeidx{entry = {'_', Pattern}}
                     )
                 ),
                 throw_unsupported(mria:match_delete(?ROUTE_TAB_V2, make_route_rec_pat(Pattern)))
@@ -487,7 +487,7 @@ cleanup_routes_v2_fallback(NodeOrExtDest) ->
     %% No point in transaction here because all the operations on filters table are dirty.
     ok = ets:foldl(
         fun(#routeidx{entry = K}, ok) ->
-            case get_dest_node(emqx_topic_index:get_id(K)) of
+            case get_dest_node(emqx_topic_index_v4:get_id(K)) of
                 NodeOrExtDest ->
                     mria:dirty_delete(route_filters_table(), K);
                 _ ->
@@ -555,7 +555,7 @@ mk_route_stream(Tab, {MTopic, MDest}) when
         emqx_utils_stream:ets(
             fun
                 (undefined) ->
-                    MatchSpec = #routeidx{entry = emqx_trie_search:make_pat(MTopic, MDest)},
+                    MatchSpec = #routeidx{entry = make_filter_pat(MTopic, MDest)},
                     ets:match_object(Tab, MatchSpec, 1);
                 (Cont) ->
                     ets:match_object(Cont)
@@ -578,7 +578,12 @@ routeidx_to_route(#routeidx{entry = M}) ->
     match_to_route(M).
 
 match_to_route(M) ->
-    #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+    #route{topic = emqx_topic_index_v4:get_topic(M), dest = emqx_topic_index_v4:get_id(M)}.
+
+make_filter_pat('_', MDest) ->
+    {'_', MDest};
+make_filter_pat(MTopic, MDest) ->
+    emqx_topic_index_v4:make_key(MTopic, MDest).
 
 %%--------------------------------------------------------------------
 %% Legacy routing schema

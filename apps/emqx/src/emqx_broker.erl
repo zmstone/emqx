@@ -468,7 +468,11 @@ forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
 ) ->
     emqx_types:deliver_result().
 do_forward(Node, To, Delivery, async) ->
-    true = emqx_broker_proto_v1:forward_async(Node, To, Delivery),
+    true =
+        case emqx_bd:remote_mode() of
+            off -> emqx_broker_proto_v1:forward_async(Node, To, Delivery);
+            on -> emqx_bd:forward(Node, To, Delivery)
+        end,
     emqx_metrics:inc_global('messages.forward');
 do_forward(Node, To, Delivery, sync) ->
     case emqx_broker_proto_v1:forward(Node, To, Delivery) of
@@ -802,7 +806,7 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
         true ->
             DispN0 = do_dispatch_shards_async(Topic, Msg, Shards, 0)
     end,
-    DispN = do_dispatch_chans(Deliver, subscribers(Topic), DispN0),
+    DispN = do_dispatch_local(emqx_bd:local_mode(), Topic, Deliver, Shards, DispN0),
     ?BROKER_INSTR_MSGLATENCY(
         ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_total_lat_us, ?US_SINCE(T0))
     ),
@@ -813,6 +817,24 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
             {error, no_subscribers};
         _ ->
             {ok, DispN}
+    end.
+
+%% Sharded topics stay out of the batched delivery experiment.
+do_dispatch_local(off, Topic, Deliver, _Shards, N) ->
+    do_dispatch_chans(Deliver, subscribers(Topic), N);
+do_dispatch_local(_Mode, Topic, Deliver, [_ | _], N) ->
+    do_dispatch_chans(Deliver, subscribers(Topic), N);
+do_dispatch_local(ets, Topic, Deliver, [], N) ->
+    Subs = subscribers(Topic),
+    ok = emqx_bd:dispatch(Topic, Deliver, Subs),
+    N + length(Subs);
+do_dispatch_local(_Mode, Topic, Deliver, [], N) ->
+    case ets:member(?SUBSCRIBER, Topic) of
+        true ->
+            ok = emqx_bd:dispatch(Topic, Deliver, lookup_in_batcher),
+            N + 1;
+        false ->
+            N
     end.
 
 %% Don't dispatch to share subscriber here.

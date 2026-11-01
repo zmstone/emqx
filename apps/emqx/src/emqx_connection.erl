@@ -646,6 +646,21 @@ handle_msg(
     end),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
     with_channel(handle_deliver, [Delivers], State);
+handle_msg({bd, undefined, Delivers0}, #state{conf = #conf{active_n = ActiveN}} = State) ->
+    Delivers = Delivers0 ++ emqx_bd:drain(ActiveN - length(Delivers0)),
+    with_channel(handle_deliver, [Delivers], State);
+handle_msg({bd, From, Delivers}, State) ->
+    Poll = {bd_poll_batcher, From},
+    case with_channel(handle_deliver, [Delivers], State) of
+        {ok, NState} -> {ok, Poll, NState};
+        {ok, Msgs, NState} -> {ok, [Msgs, Poll], NState};
+        Other -> Other
+    end;
+handle_msg({bd_poll_batcher, From}, _State) ->
+    From ! {bd_poll, self()},
+    ok;
+handle_msg(bd_ready, #state{conf = #conf{active_n = ActiveN}} = State) ->
+    with_channel(handle_deliver, [emqx_bd:ets_take(ActiveN)], State);
 handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
 handle_msg({close, Reason}, State) ->

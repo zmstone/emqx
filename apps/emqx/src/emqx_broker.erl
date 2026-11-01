@@ -307,10 +307,15 @@ do_publish_many([Msg | T]) ->
 
 do_publish(#message{topic = Topic} = Msg) ->
     PersistRes = persist_publish(Msg),
-    Routes = aggre(emqx_router:match_routes(Topic)),
+    Routes = bd_routes(emqx_bd:local_mode(), Topic),
     Delivery = delivery(Msg),
     RouteRes = route(Routes, Delivery, PersistRes),
     do_forward_external(Delivery, RouteRes).
+
+bd_routes(chunkr, Topic) ->
+    emqx_bd:chunk_routes(Topic, fun() -> aggre(emqx_router:match_routes(Topic)) end);
+bd_routes(_Mode, Topic) ->
+    aggre(emqx_router:match_routes(Topic)).
 
 -doc """
 Return `[persisted]` when built-in persistence accepts the message, or when
@@ -824,6 +829,14 @@ do_dispatch_local(off, Topic, Deliver, _Shards, N) ->
     do_dispatch_chans(Deliver, subscribers(Topic), N);
 do_dispatch_local(_Mode, Topic, Deliver, [_ | _], N) ->
     do_dispatch_chans(Deliver, subscribers(Topic), N);
+do_dispatch_local(chunk, Topic, Deliver, [], N) ->
+    Subs = subscribers(Topic),
+    ok = emqx_bd:chunk_send(Deliver, Subs),
+    N + length(Subs);
+do_dispatch_local(chunkr, Topic, Deliver, [], N) ->
+    Subs = emqx_bd:chunk_subs(Topic, fun() -> subscribers(Topic) end),
+    ok = emqx_bd:chunk_send(Deliver, Subs),
+    N + length(Subs);
 do_dispatch_local(ets, Topic, Deliver, [], N) ->
     Subs = subscribers(Topic),
     ok = emqx_bd:dispatch(Topic, Deliver, Subs),

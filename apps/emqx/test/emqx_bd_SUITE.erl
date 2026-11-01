@@ -12,7 +12,10 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.chunk { bind = \"127.0.0.1:21883\", parse_unit = chunk }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -23,6 +26,44 @@ t_off(_Config) -> check_order(off).
 t_push(_Config) -> check_order(push).
 t_poll(_Config) -> check_order(poll).
 t_ets(_Config) -> check_order(ets).
+t_chunk(_Config) -> check_order(chunk).
+t_chunkr(_Config) -> check_order(chunkr).
+
+%% Several PUBLISH packets in one write, on a listener with parse_unit = chunk. The subscriber
+%% gets them in order and in fewer sends.
+t_chunk_one_write(_Config) ->
+    {Sub, Sock} = chunk_setup(chunk),
+    ok = gen_tcp:send(Sock, [publish_frame(I) || I <- lists:seq(1, 16)]),
+    ?assertEqual(lists:seq(1, 16), lists:reverse(maps:get(Sub, recv(16, #{})))),
+    ?assertMatch(#{rounds := 1, sends := 1, deliveries := 16}, emqx_bd:stats()),
+    chunk_teardown(Sub, Sock).
+
+%% A DISCONNECT at the end of the chunk must not lose what the chunk collected.
+t_chunk_disconnect_in_write(_Config) ->
+    {Sub, Sock} = chunk_setup(chunk),
+    ok = gen_tcp:send(Sock, [[publish_frame(I) || I <- lists:seq(1, 4)], <<16#E0, 0>>]),
+    ?assertEqual(lists:seq(1, 4), lists:reverse(maps:get(Sub, recv(4, #{})))),
+    ?assertMatch(#{rounds := 1, sends := 1, deliveries := 4}, emqx_bd:stats()),
+    chunk_teardown(Sub, Sock).
+
+chunk_setup(Mode) ->
+    ok = emqx_bd:set_mode(Mode, off, 1),
+    Sub = connect(<<"chunk_sub">>),
+    {ok, _, [0]} = emqtt:subscribe(Sub, <<"bd/c">>, 0),
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", 21883, [binary, {active, false}, {nodelay, true}]),
+    ok = gen_tcp:send(Sock, <<16#10, 14, 4:16, "MQTT", 4, 2, 60:16, 2:16, "cp">>),
+    {ok, <<16#20, 2, 0, 0>>} = gen_tcp:recv(Sock, 4, 5000),
+    {Sub, Sock}.
+
+chunk_teardown(Sub, Sock) ->
+    gen_tcp:close(Sock),
+    ok = emqtt:stop(Sub),
+    ok.
+
+publish_frame(I) ->
+    Payload = integer_to_binary(I),
+    Body = <<4:16, "bd/c", Payload/binary>>,
+    <<16#30, (byte_size(Body)), Body/binary>>.
 
 check_order(Mode) ->
     ok = emqx_bd:set_mode(Mode, off, 2),

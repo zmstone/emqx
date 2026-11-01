@@ -14,17 +14,24 @@ Local modes:
   batcher holds later deliveries until the subscriber sends `{bd_poll, Pid}`. There is no timer.
 - `ets`: no batcher. The publisher writes deliveries to ETS and wakes an idle subscriber with
   `bd_ready`. The subscriber takes its deliveries from ETS.
+- `chunk`: no batcher and no ETS. When one TCP chunk holds more than one packet, the publisher's
+  connection collects the deliveries per subscriber, and sends each subscriber one
+  `{bd, undefined, Delivers}` at the end of the chunk.
+- `chunkr`: as `chunk`, and the publisher also looks up routes and subscribers once per topic
+  in a chunk.
 
 Remote mode `on` sends forwards through the batcher, one RPC per batcher round and node.
 
 Limits of this experiment: only `emqx_connection` understands these messages, deliveries held
-in a batcher or in ETS are lost when the subscriber exits, and the RPC is not in BPAPI.
+in a batcher or in ETS are lost when the subscriber exits, and the RPC is not in BPAPI. In the
+chunk modes, a QoS 1 PUBACK can leave before the end of the chunk.
 """.
 
 -include("emqx.hrl").
 
 -export([set_mode/3, stats/0, local_mode/0, remote_mode/0]).
 -export([dispatch/3, forward/3, dispatch_batch/1, drain/1, ets_take/1]).
+-export([chunk_begin/1, chunk_flush/0, chunk_send/2, chunk_routes/2, chunk_subs/2]).
 
 -define(PT, emqx_bd_conf).
 -define(CHANS, emqx_bd_entries).
@@ -32,6 +39,9 @@ in a batcher or in ETS are lost when the subscriber exits, and the RPC is not in
 -define(MAX_ROUND, 100).
 -define(MAX_HELD, 1000).
 -define(SWEEP_MS, 5000).
+-define(CHUNK, emqx_bd_chunk).
+-define(MEMO_ROUTES, emqx_bd_routes).
+-define(MEMO_SUBS, emqx_bd_subs).
 
 -define(C_MSGS, 1).
 -define(C_DELIVERIES, 2).
@@ -46,7 +56,7 @@ in a batcher or in ETS are lost when the subscriber exits, and the RPC is not in
 %%--------------------------------------------------------------------
 
 -doc "Set the local mode, the remote mode and the number of batchers. Call this with no load.".
--spec set_mode(off | push | poll | ets, off | on, pos_integer()) -> ok.
+-spec set_mode(off | push | poll | ets | chunk | chunkr, off | on, pos_integer()) -> ok.
 set_mode(Local, Remote, K) ->
     case persistent_term:get(?PT, undefined) of
         undefined -> ok;
@@ -83,7 +93,7 @@ stats() ->
 conf() ->
     persistent_term:get(?PT, {off, off, {}, undefined}).
 
--spec local_mode() -> off | push | poll | ets.
+-spec local_mode() -> off | push | poll | ets | chunk | chunkr.
 local_mode() ->
     element(1, conf()).
 
@@ -157,6 +167,107 @@ ets_take(Self, Key0, N) ->
             [Deliver | ets_take(Self, Key, N - 1)];
         _ ->
             []
+    end.
+
+%%--------------------------------------------------------------------
+%% Chunk modes, publisher side
+%%--------------------------------------------------------------------
+
+-doc "Start to collect deliveries when the chunk holds more than one packet. True if it started.".
+-spec chunk_begin(non_neg_integer()) -> boolean().
+chunk_begin(N) when N > 1 ->
+    case local_mode() of
+        off ->
+            false;
+        Mode when Mode =:= chunk; Mode =:= chunkr ->
+            put(?CHUNK, #{}),
+            {_, _, _, Cnt} = conf(),
+            counters:add(Cnt, ?C_ROUNDS, 1),
+            counters:add(Cnt, ?C_MSGS, N),
+            true;
+        _ ->
+            false
+    end;
+chunk_begin(_) ->
+    false.
+
+-doc "Send what the chunk collected. Later packets of the chunk send directly.".
+-spec chunk_flush() -> ok.
+chunk_flush() ->
+    case erase(?CHUNK) of
+        undefined ->
+            ok;
+        Buf ->
+            erase(?MEMO_ROUTES),
+            erase(?MEMO_SUBS),
+            {_, _, _, Cnt} = conf(),
+            maps:foreach(
+                fun(Sub, Rev) ->
+                    Sub ! {bd, undefined, lists:reverse(Rev)},
+                    counters:add(Cnt, ?C_SENDS, 1),
+                    counters:add(Cnt, ?C_DELIVERIES, length(Rev))
+                end,
+                Buf
+            )
+    end.
+
+-doc """
+Deliver in a chunk mode. Always in the batch form, because a plain `#deliver{}` drain can pass
+a `{bd, ...}` message in the mailbox.
+""".
+-spec chunk_send(#deliver{}, [pid()]) -> ok.
+chunk_send(Deliver, Subs) ->
+    case get(?CHUNK) of
+        undefined ->
+            {_, _, _, Cnt} = conf(),
+            N = lists:foldl(
+                fun(Sub, I) ->
+                    Sub ! {bd, undefined, [Deliver]},
+                    I + 1
+                end,
+                0,
+                Subs
+            ),
+            counters:add(Cnt, ?C_SENDS, N),
+            counters:add(Cnt, ?C_DELIVERIES, N);
+        Buf ->
+            put(
+                ?CHUNK,
+                lists:foldl(
+                    fun(Sub, Acc) ->
+                        case Acc of
+                            #{Sub := Rev} -> Acc#{Sub := [Deliver | Rev]};
+                            #{} -> Acc#{Sub => [Deliver]}
+                        end
+                    end,
+                    Buf,
+                    Subs
+                )
+            ),
+            ok
+    end.
+
+-doc "Return `Lookup()`, kept for the rest of the chunk in `chunkr` mode.".
+-spec chunk_routes(emqx_types:topic(), fun(() -> Routes)) -> Routes.
+chunk_routes(Topic, Lookup) ->
+    memo(?MEMO_ROUTES, Topic, Lookup).
+
+-doc "Return `Lookup()`, kept for the rest of the chunk in `chunkr` mode.".
+-spec chunk_subs(emqx_types:topic(), fun(() -> Subs)) -> Subs.
+chunk_subs(Topic, Lookup) ->
+    memo(?MEMO_SUBS, Topic, Lookup).
+
+memo(Slot, Topic, Lookup) ->
+    case get(Slot) of
+        {Topic, Value} ->
+            Value;
+        _ ->
+            Value = Lookup(),
+            case local_mode() =:= chunkr andalso get(?CHUNK) =/= undefined of
+                true -> put(Slot, {Topic, Value});
+                false -> ok
+            end,
+            Value
     end.
 
 %%--------------------------------------------------------------------

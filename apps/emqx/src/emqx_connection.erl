@@ -607,7 +607,13 @@ handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     on_bytes_in(Len, Data, State);
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
+    case Packet of
+        ?PUBLISH_PACKET(_) -> ok;
+        _ -> emqx_bd:chunk_flush()
+    end,
     handle_incoming(Packet, State);
+handle_msg(bd_chunk_flush, _State) ->
+    emqx_bd:chunk_flush();
 handle_msg({outgoing, Packets}, State) ->
     case handle_outgoing(Packets, State) of
         {ok, NState} ->
@@ -716,6 +722,7 @@ terminate(
     }
 ) ->
     try
+        ok = emqx_bd:chunk_flush(),
         Channel1 = emqx_channel:set_conn_state(disconnected, Channel),
         emqx_congestion:cancel_alarms(?MODULE, State),
         _ = emqx_channel:terminate(Reason, Channel1),
@@ -871,7 +878,10 @@ on_bytes_in(Oct, Data, State = #state{thresholds = T0, channel = Channel}) ->
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     FState = NState#state{thresholds = Thresholds},
-    {ok, next_incoming_msgs(Packets), FState}.
+    case emqx_bd:chunk_begin(N) of
+        true -> {ok, [next_incoming_msgs(Packets), bd_chunk_flush], FState};
+        false -> {ok, next_incoming_msgs(Packets), FState}
+    end.
 
 %% @doc: return a reversed Msg list
 -compile({inline, [next_incoming_msgs/1]}).

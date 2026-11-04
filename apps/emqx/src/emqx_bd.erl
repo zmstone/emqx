@@ -19,6 +19,8 @@ Local modes:
   `{bd, undefined, Delivers}` at the end of the chunk.
 - `chunkr`: as `chunk`, and the publisher also looks up routes and subscribers once per topic
   in a chunk.
+- `chunk<N>`, `chunkr<N>` (for example `chunkr16`): as `chunk` and `chunkr`, but a subscriber
+  gets a batch when it has `N` deliveries, and the rest at the end of the chunk.
 
 Remote mode `on` sends forwards through the batcher, one RPC per batcher round and node.
 
@@ -42,6 +44,7 @@ chunk modes, a QoS 1 PUBACK can leave before the end of the chunk.
 -define(CHUNK, emqx_bd_chunk).
 -define(MEMO_ROUTES, emqx_bd_routes).
 -define(MEMO_SUBS, emqx_bd_subs).
+-define(PT_CAP, emqx_bd_cap).
 
 -define(C_MSGS, 1).
 -define(C_DELIVERIES, 2).
@@ -57,7 +60,9 @@ chunk modes, a QoS 1 PUBACK can leave before the end of the chunk.
 
 -doc "Set the local mode, the remote mode and the number of batchers. Call this with no load.".
 -spec set_mode(off | push | poll | ets | chunk | chunkr, off | on, pos_integer()) -> ok.
-set_mode(Local, Remote, K) ->
+set_mode(Local0, Remote, K) ->
+    {Local, Cap} = parse_local(Local0),
+    persistent_term:put(?PT_CAP, Cap),
     case persistent_term:get(?PT, undefined) of
         undefined -> ok;
         {_, _, OldPool, _} -> [exit(P, kill) || P <- tuple_to_list(OldPool)]
@@ -71,6 +76,12 @@ set_mode(Local, Remote, K) ->
         end,
     persistent_term:put(?PT, {Local, Remote, Pool, Cnt}),
     ok.
+
+parse_local(Mode) ->
+    case re:run(atom_to_list(Mode), "^(chunkr?)([0-9]+)$", [{capture, all_but_first, list}]) of
+        {match, [Base, N]} -> {list_to_atom(Base), list_to_integer(N)};
+        nomatch -> {Mode, infinity}
+    end.
 
 -spec stats() -> map().
 stats() ->
@@ -201,14 +212,7 @@ chunk_flush() ->
             erase(?MEMO_ROUTES),
             erase(?MEMO_SUBS),
             {_, _, _, Cnt} = conf(),
-            maps:foreach(
-                fun(Sub, Rev) ->
-                    Sub ! {bd, undefined, lists:reverse(Rev)},
-                    counters:add(Cnt, ?C_SENDS, 1),
-                    counters:add(Cnt, ?C_DELIVERIES, length(Rev))
-                end,
-                Buf
-            )
+            maps:foreach(fun(Sub, {Rev, Len}) -> send_batch(Cnt, Sub, Rev, Len) end, Buf)
     end.
 
 -doc """
@@ -231,21 +235,27 @@ chunk_send(Deliver, Subs) ->
             counters:add(Cnt, ?C_SENDS, N),
             counters:add(Cnt, ?C_DELIVERIES, N);
         Buf ->
-            put(
-                ?CHUNK,
-                lists:foldl(
-                    fun(Sub, Acc) ->
-                        case Acc of
-                            #{Sub := Rev} -> Acc#{Sub := [Deliver | Rev]};
-                            #{} -> Acc#{Sub => [Deliver]}
-                        end
-                    end,
-                    Buf,
-                    Subs
-                )
-            ),
+            Cap = persistent_term:get(?PT_CAP, infinity),
+            put(?CHUNK, lists:foldl(fun(Sub, Acc) -> add(Sub, Deliver, Cap, Acc) end, Buf, Subs)),
             ok
     end.
+
+add(Sub, Deliver, Cap, Acc) ->
+    case Acc of
+        #{Sub := {Rev, Len}} when Len + 1 >= Cap ->
+            {_, _, _, Cnt} = conf(),
+            send_batch(Cnt, Sub, [Deliver | Rev], Len + 1),
+            maps:remove(Sub, Acc);
+        #{Sub := {Rev, Len}} ->
+            Acc#{Sub := {[Deliver | Rev], Len + 1}};
+        #{} ->
+            Acc#{Sub => {[Deliver], 1}}
+    end.
+
+send_batch(Cnt, Sub, Rev, Len) ->
+    Sub ! {bd, undefined, lists:reverse(Rev)},
+    counters:add(Cnt, ?C_SENDS, 1),
+    counters:add(Cnt, ?C_DELIVERIES, Len).
 
 -doc "Return `Lookup()`, kept for the rest of the chunk in `chunkr` mode.".
 -spec chunk_routes(emqx_types:topic(), fun(() -> Routes)) -> Routes.

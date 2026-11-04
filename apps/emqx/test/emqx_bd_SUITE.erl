@@ -38,6 +38,14 @@ t_chunk_one_write(_Config) ->
     ?assertMatch(#{rounds := 1, sends := 1, deliveries := 16}, emqx_bd:stats()),
     chunk_teardown(Sub, Sock).
 
+%% With a cap of 4, 16 publishes in one write reach the subscriber in 4 batches, in order.
+t_chunk_cap(_Config) ->
+    {Sub, Sock} = chunk_setup(chunkr4),
+    ok = gen_tcp:send(Sock, [publish_frame(I) || I <- lists:seq(1, 16)]),
+    ?assertEqual(lists:seq(1, 16), lists:reverse(maps:get(Sub, recv(16, #{})))),
+    ?assertMatch(#{local := chunkr, rounds := 1, sends := 4, deliveries := 16}, emqx_bd:stats()),
+    chunk_teardown(Sub, Sock).
+
 %% A DISCONNECT at the end of the chunk must not lose what the chunk collected.
 t_chunk_disconnect_in_write(_Config) ->
     {Sub, Sock} = chunk_setup(chunk),

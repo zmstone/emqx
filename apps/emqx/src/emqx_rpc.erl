@@ -13,6 +13,7 @@
     call/6,
     cast/4,
     cast/5,
+    inline_cast/5,
     multicall/4,
     multicall/5,
     multicall_on_running/5,
@@ -105,6 +106,11 @@ cast(Node, Mod, Fun, Args) ->
 -spec cast(term(), node(), module(), atom(), list()) -> cast_result().
 cast(Key, Node, Mod, Fun, Args) ->
     gen_rpc:ordered_cast(rpc_node({Key, Node}), Mod, Fun, Args).
+
+-doc "Like `cast/5`, but the receiver runs the function with no spawn. The function must not block.".
+-spec inline_cast(term(), node(), module(), atom(), list()) -> cast_result().
+inline_cast(Key, Node, Mod, Fun, Args) ->
+    gen_rpc:inline_cast(rpc_node({Key, Node}), Mod, Fun, Args).
 
 rpc_node(Node) when is_atom(Node) ->
     {Node, rand:uniform(max_client_num())};

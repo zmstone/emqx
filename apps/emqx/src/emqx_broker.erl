@@ -475,8 +475,15 @@ forward(Node, To, Delivery = #delivery{message = _Msg}, RpcMode) ->
 do_forward(Node, To, Delivery, async) ->
     true =
         case emqx_bd:remote_mode() of
-            off -> emqx_broker_proto_v1:forward_async(Node, To, Delivery);
-            on -> emqx_bd:forward(Node, To, Delivery)
+            off ->
+                emqx_broker_proto_v1:forward_async(Node, To, Delivery);
+            on ->
+                emqx_bd:forward(Node, To, Delivery);
+            %% A shared dispatch can wait for an ack, so it keeps the spawn.
+            inline when is_binary(To) ->
+                emqx_rpc:inline_cast(To, Node, emqx_broker, dispatch, [To, Delivery]);
+            inline ->
+                emqx_broker_proto_v1:forward_async(Node, To, Delivery)
         end,
     emqx_metrics:inc_global('messages.forward');
 do_forward(Node, To, Delivery, sync) ->

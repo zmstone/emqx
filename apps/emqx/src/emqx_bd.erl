@@ -23,6 +23,7 @@ Local modes:
   gets a batch when it has `N` deliveries, and the rest at the end of the chunk.
 
 Remote mode `on` sends forwards through the batcher, one RPC per batcher round and node.
+Remote mode `inline` sends each forward with `gen_rpc:inline_cast/4`, so the receiver dispatches with no spawn.
 
 Limits of this experiment: only `emqx_connection` understands these messages, deliveries held
 in a batcher or in ETS are lost when the subscriber exits, and the RPC is not in BPAPI. In the
@@ -59,7 +60,7 @@ chunk modes, a QoS 1 PUBACK can leave before the end of the chunk.
 %%--------------------------------------------------------------------
 
 -doc "Set the local mode, the remote mode and the number of batchers. Call this with no load.".
--spec set_mode(off | push | poll | ets | chunk | chunkr, off | on, pos_integer()) -> ok.
+-spec set_mode(off | push | poll | ets | chunk | chunkr, off | on | inline, pos_integer()) -> ok.
 set_mode(Local0, Remote, K) ->
     {Local, Cap} = parse_local(Local0),
     persistent_term:put(?PT_CAP, Cap),
@@ -108,7 +109,7 @@ conf() ->
 local_mode() ->
     element(1, conf()).
 
--spec remote_mode() -> off | on.
+-spec remote_mode() -> off | on | inline.
 remote_mode() ->
     element(2, conf()).
 

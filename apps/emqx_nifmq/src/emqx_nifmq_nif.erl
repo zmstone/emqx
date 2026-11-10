@@ -29,7 +29,13 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     conn_set_mode/2,
     conn_info/1,
     conn_stats/0,
-    info/0
+    info/0,
+    tls_config/1,
+    tls_new/1,
+    tls_feed_hs/2,
+    tls_feed/2,
+    tls_encrypt/2,
+    tls_close/1
 ]).
 
 -nifs([
@@ -54,7 +60,13 @@ NIF stubs for the NifMQ prototype. Use `emqx_nifmq` instead of calling this modu
     conn_set_mode/2,
     conn_info/1,
     conn_stats/0,
-    info/0
+    info/0,
+    tls_config/1,
+    tls_new/1,
+    tls_feed_hs/2,
+    tls_feed/2,
+    tls_encrypt/2,
+    tls_close/1
 ]).
 
 -on_load(init/0).
@@ -87,3 +99,9 @@ conn_close(_Conn) -> ?NOT_LOADED.
 conn_set_mode(_Mode, _K) -> ?NOT_LOADED.
 conn_info(_Conn) -> ?NOT_LOADED.
 conn_stats() -> ?NOT_LOADED.
+tls_config(_Opts) -> ?NOT_LOADED.
+tls_new(_Conf) -> ?NOT_LOADED.
+tls_feed_hs(_Tls, _Data) -> ?NOT_LOADED.
+tls_feed(_Tls, _Data) -> ?NOT_LOADED.
+tls_encrypt(_Tls, _IoData) -> ?NOT_LOADED.
+tls_close(_Tls) -> ?NOT_LOADED.

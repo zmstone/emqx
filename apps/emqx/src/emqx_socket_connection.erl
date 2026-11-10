@@ -113,6 +113,9 @@
     %% Tenant Namespace
     namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
+    %% NIF TLS session (`emqx_niftls`, prototype), when the listener enables it
+    tls = undefined :: term(),
+
     %% Extra field for future hot-upgrade support
     extra = []
 }).
@@ -343,9 +346,16 @@ init_state(
         thresholds = #thresholds{},
         conf = Conf,
         namespace = ?global_ns,
+        tls = init_tls({Type, Listener}),
         extra = []
     },
     init_zone_specific_state(Conf, Zone, State0).
+
+init_tls(Listener) ->
+    case persistent_term:get({emqx_niftls, Listener}, undefined) of
+        undefined -> undefined;
+        TlsConf -> emqx_niftls:new(TlsConf)
+    end.
 
 ensure_ok_or_exit(Result, Sock) ->
     case Result of
@@ -875,7 +885,30 @@ maybe_set_chan_stats(ClientId, State) ->
 %%--------------------------------------------------------------------
 %% Parse incoming data
 
-handle_data(
+handle_data(Data, RequestMore, State = #state{tls = Tls}) when Tls =/= undefined ->
+    case emqx_niftls:feed(Tls, Data) of
+        {ok, Out, App, Tls1} ->
+            handle_tls_data(Out, App, RequestMore, State#state{tls = Tls1});
+        {handshake_done, Out, App, _Info, Tls1} ->
+            handle_tls_data(Out, App, RequestMore, State#state{tls = Tls1});
+        {close, Out, Reason} ->
+            _ = send_wire(0, [Out], State),
+            {ok, {sock_error, {ssl_error, Reason}}, State};
+        {error, Reason} ->
+            {ok, {sock_error, {ssl_error, Reason}}, State}
+    end;
+handle_data(Data, RequestMore, State) ->
+    handle_plain_data(Data, RequestMore, State).
+
+handle_tls_data(Out, App, RequestMore, State0) ->
+    case send_wire(0, [Out], State0) of
+        {ok, State} ->
+            handle_plain_data(App, RequestMore, State);
+        {ok, {sock_error, _}, _State} = Error ->
+            Error
+    end.
+
+handle_plain_data(
     Data,
     RequestMore,
     State0 = #state{
@@ -898,9 +931,14 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    Tail = request_more_data_msgs(RequestMore, More, SS),
+    Tail = request_more_data_msgs(RequestMore, wire_more(More, State0), SS),
     Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
+
+%% With TLS, the parser's byte count is for plaintext, not for the socket.
+-compile({inline, [wire_more/2]}).
+wire_more(More, #state{tls = undefined}) -> More;
+wire_more(_More, _State) -> 0.
 
 %% `RequestMore':
 %% - `true': the last read did not arm a select, so read again.
@@ -1284,7 +1322,20 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 
 -spec send(non_neg_integer(), erlang:iovec(), state()) ->
     {ok, state()} | {ok, {sock_error, _Reason}, state()}.
-send(
+send(Num, IoVec, #state{tls = Tls, sockstate = SS} = State) when
+    Tls =/= undefined, SS =/= closed, IoVec =/= []
+->
+    case emqx_niftls:encrypt(Tls, IoVec) of
+        {ok, Out} -> send_wire(Num, [Out], State);
+        {error, Reason} -> {ok, {sock_error, {ssl_error, Reason}}, State}
+    end;
+send(Num, IoVec, State) ->
+    send_wire(Num, IoVec, State).
+
+%% Send bytes as they are, after the TLS layer.
+send_wire(_Num, [<<>>], State) ->
+    {ok, State};
+send_wire(
     Num,
     IoVec,
     #state{socket = Socket, sockstate = idle} = State
@@ -1306,7 +1357,7 @@ send(
         {error, Reason} ->
             {ok, {sock_error, Reason}, State}
     end;
-send(
+send_wire(
     Num,
     IoVec,
     State = #state{
@@ -1323,7 +1374,7 @@ send(
         false ->
             {ok, {sock_error, send_timeout}, State}
     end;
-send(_Num, _IoVec, #state{sockstate = closed} = State) ->
+send_wire(_Num, _IoVec, #state{sockstate = closed} = State) ->
     {ok, State}.
 
 send_iovec(Socket, IoVec, Handle) ->

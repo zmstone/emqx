@@ -514,5 +514,6 @@ fn info(env: Env) -> NifResult<Term> {
 }
 
 mod conn;
+mod tls;
 
 rustler::init!("emqx_nifmq_nif");

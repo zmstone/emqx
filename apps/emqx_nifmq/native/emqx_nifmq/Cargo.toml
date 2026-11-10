@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 [dependencies]
 rustler = "=0.37.0"
 libc = "=0.2.182"
+rustls = { version = "=0.23.37", default-features = false, features = ["ring", "std", "tls12"] }
 
 [profile.release]
 lto = "fat"

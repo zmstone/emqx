@@ -206,6 +206,14 @@ t_retain_handling(Config) ->
     ?assertEqual(0, length(receive_messages(1))),
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/#">>),
 
+    %% The broker removes the subscriber entries asynchronously after UNSUBACK.
+    %% Wait until both topic filters have no subscribers before the publish.
+    %% Otherwise the broker delivers the publish to this client as a normal
+    %% message, and every later receive_messages/1 call consumes a delivery
+    %% that belongs to an earlier assertion.
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained">>))),
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained/#">>))),
+
     publish(
         C1,
         <<"retained">>,
@@ -237,6 +245,7 @@ t_retain_handling(Config) ->
     ?assertEqual(0, length(receive_messages(1))),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
+    %% Wait until the clear is applied so it cannot leak into the next case.
     ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
     ok = emqtt:disconnect(C1).
 

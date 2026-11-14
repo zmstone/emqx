@@ -18,6 +18,7 @@
 -include("types.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("mria/include/mria.hrl").
 
 %% Mnesia bootstrap
 -export([create_tables/0]).
@@ -32,7 +33,9 @@
     subscribe/3,
     unsubscribe/3,
     unsubscribe_down/3,
-    purge_node/1
+    purge_node/1,
+    member_nodes/1,
+    has_members_on/1
 ]).
 
 -export([
@@ -100,6 +103,8 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 -define(SUBSCRIBER_DOWN, noproc).
+%% The ETS table of `mria_membership'. Mria does not export it.
+-define(MRIA_MEMBERSHIP_TAB, membership).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
@@ -154,6 +159,42 @@ purge_node(Node) ->
     %% TODO: Refactor `emqx_router_helper` to avoid this hack.
     erlang:whereis(?SERVER) =/= undefined andalso
         gen_server:call(?SERVER, {purge, Node}, infinity).
+
+-doc """
+Return the nodes that own at least one member in the shared subscription table,
+except the nodes in `Exclude`.
+
+The function scans the table once for each node that it returns, plus one time.
+Each scan stops at the first matching row and returns only that row.
+""".
+-spec member_nodes(_Exclude :: [node()]) -> [node()].
+member_nodes(Exclude) ->
+    case ets:whereis(?SHARED_SUBSCRIPTION) of
+        undefined -> [];
+        _ -> member_nodes(Exclude, [])
+    end.
+
+member_nodes(Exclude, Acc) ->
+    Guard = lists:foldl(
+        fun(Node, G) -> {'andalso', {'=/=', {node, '$1'}, {const, Node}}, G} end,
+        true,
+        Exclude
+    ),
+    MS = [{#?SHARED_SUBSCRIPTION{subpid = '$1', _ = '_'}, [Guard], [{node, '$1'}]}],
+    case ets:select(?SHARED_SUBSCRIPTION, MS, 1) of
+        {[Node], _Continuation} ->
+            member_nodes([Node | Exclude], [Node | Acc]);
+        '$end_of_table' ->
+            lists:reverse(Acc)
+    end.
+
+-doc "Return `true` when the node owns at least one member in the shared subscription table.".
+-spec has_members_on(node()) -> boolean().
+has_members_on(Node) ->
+    Guard = {'=:=', {node, '$1'}, {const, Node}},
+    MS = [{#?SHARED_SUBSCRIPTION{subpid = '$1', _ = '_'}, [Guard], [true]}],
+    ets:whereis(?SHARED_SUBSCRIPTION) =/= undefined andalso
+        ets:select(?SHARED_SUBSCRIPTION, MS, 1) =/= '$end_of_table'.
 
 record(Group, Topic, SubPid) ->
     #?SHARED_SUBSCRIPTION{group = Group, topic = Topic, subpid = SubPid}.
@@ -422,14 +463,59 @@ do_pick_subscriber(Group, Topic, round_robin_per_group, _ClientId, _SourceTopic,
         {Group, Topic}, 0
     }).
 
-%% Select ETS table to get all subscriber pids which are not down.
+%% Select ETS table to get all subscriber pids which are not down,
+%% and which run on a node that is a running cluster member.
 subscribers(Group, Topic, FailedSubs) ->
-    lists:filter(
-        fun(P) ->
-            ?SUBSCRIBER_DOWN =/= maps:get(P, FailedSubs, false)
-        end,
-        subscribers(Group, Topic)
+    filter_running_members(
+        lists:filter(
+            fun(P) ->
+                ?SUBSCRIBER_DOWN =/= maps:get(P, FailedSubs, false)
+            end,
+            subscribers(Group, Topic)
+        )
     ).
+
+%% Keep the subscribers whose node is a running cluster member.
+%% A subscriber on a node that left the cluster or is down stays in the
+%% shared subscription table until a core node purges it (see
+%% `emqx_router_helper'). Messages dispatched to it meanwhile are lost.
+%% Each distinct node is looked up once.
+filter_running_members(Pids) ->
+    filter_running_members(Pids, #{}, []).
+
+filter_running_members([], _Known, Acc) ->
+    lists:reverse(Acc);
+filter_running_members([Pid | Rest], Known0, Acc) ->
+    case is_running_member(node(Pid), Known0) of
+        {true, Known} -> filter_running_members(Rest, Known, [Pid | Acc]);
+        {false, Known} -> filter_running_members(Rest, Known, Acc)
+    end.
+
+is_running_member(Node, Known) ->
+    case Known of
+        #{Node := IsRunning} ->
+            {IsRunning, Known};
+        #{} ->
+            IsRunning = is_running_member(Node),
+            {IsRunning, Known#{Node => IsRunning}}
+    end.
+
+%% Read the membership table that Mria keeps on each node: one ETS lookup.
+%% A node counts as running under the same condition that
+%% `mria:running_nodes/0' uses for replicants: `status = up' and
+%% `mnesia = running'. A node that is not in the table does not count as
+%% running: for example a node that went down before this node started.
+is_running_member(Node) when Node =:= node() ->
+    true;
+is_running_member(Node) ->
+    try ets:lookup(?MRIA_MEMBERSHIP_TAB, Node) of
+        [#member{status = up, mnesia = running}] -> true;
+        _ -> false
+    catch
+        error:badarg ->
+            %% Mria membership is not started.
+            true
+    end.
 
 %% Select ETS table to get all subscriber pids.
 subscribers(Group, Topic) ->

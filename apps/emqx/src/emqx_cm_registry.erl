@@ -171,7 +171,7 @@ unregister_channel2(#channel{chid = ClientId} = Record) ->
 %% Drop local pids if they are known to be down.
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) ->
-    [ChanPid || ChanPid <- lookup_all_channels(ClientId), is_pid_alive(ChanPid) =/= false].
+    [ChanPid || ChanPid <- lookup_all_channels(ClientId), not is_local_pid_down(ChanPid)].
 
 %% @doc Lookup the global channels.
 -spec lookup_all_channels(emqx_types:clientid()) -> list(pid()).
@@ -179,12 +179,11 @@ lookup_all_channels(ClientId) ->
     Chans = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
     [ChanPid || #channel{pid = ChanPid} <- Chans, is_pid(ChanPid)].
 
-%% Return 'true' or 'false' if it's a local pid.
-%% Otherwise return 'unknown'.
-is_pid_alive(Pid) when node(Pid) =:= node() ->
-    erlang:is_process_alive(Pid);
-is_pid_alive(_) ->
-    unknown.
+%% Return 'true' only for a local pid that is not alive.
+is_local_pid_down(Pid) when node(Pid) =:= node() ->
+    not erlang:is_process_alive(Pid);
+is_local_pid_down(_) ->
+    false.
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.

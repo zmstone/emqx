@@ -123,7 +123,7 @@ init([Pool, Id]) ->
     {ok, #{pool => Pool, id => Id}}.
 
 handle_call({submit, Task}, _From, State) ->
-    {reply, catch run(Task), State};
+    {reply, run_catch(Task), State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -158,6 +158,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Same result as `catch run(Task)`.
+run_catch(Task) ->
+    try
+        run(Task)
+    catch
+        throw:Value -> Value;
+        error:Reason:Stacktrace -> {'EXIT', {Reason, Stacktrace}};
+        exit:Reason -> {'EXIT', Reason}
+    end.
 
 run({M, F, A}) ->
     erlang:apply(M, F, A);

@@ -131,6 +131,9 @@
 %% Batch drain
 -define(BATCH_SIZE, 1000).
 
+%% Max channels removed from the global registry in one call
+-define(CLEAN_DOWN_BATCH, 1000).
+
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
 %% Server name
@@ -215,8 +218,11 @@ unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
     do_unregister_channel({ClientId, ChanPid}).
 
 %% @private
-do_unregister_channel({_ClientId, ChanPid} = Chan) ->
+do_unregister_channel(Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
+    unregister_channel_local(Chan).
+
+unregister_channel_local({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
@@ -896,25 +902,68 @@ collect_msgs(Regs, Down, N) ->
         {Regs, Down}
     end.
 
-clean_down([]) ->
-    ok;
-clean_down([Pid | Pids]) ->
-    ok = clean_down2(Pid),
-    clean_down(Pids).
+-doc """
+Clean up after channels that are down. This task runs in an `emqx_cm_pool` worker.
+It also takes the clean-down tasks that are queued behind it, so that one call to
+the global registry removes up to `?CLEAN_DOWN_BATCH` channels. On a replicant,
+each such call is a round trip to a core node.
+""".
+clean_down(Pids) ->
+    clean_down_batches(take_queued_clean_down(Pids, length(Pids))).
 
-clean_down2(Pid) when is_pid(Pid) ->
+take_queued_clean_down(Pids, N) when N >= ?CLEAN_DOWN_BATCH ->
+    Pids;
+take_queued_clean_down(Pids, N) ->
+    case emqx_pool:take_async_task(fun ?MODULE:clean_down/1) of
+        {ok, [More]} ->
+            take_queued_clean_down(More ++ Pids, N + length(More));
+        none ->
+            Pids
+    end.
+
+clean_down_batches([]) ->
+    ok;
+clean_down_batches(Pids) ->
+    {Batch, Rest} = split_batch(Pids, ?CLEAN_DOWN_BATCH, []),
+    ok = clean_down_batch(Batch),
+    clean_down_batches(Rest).
+
+split_batch([], _N, Acc) ->
+    {Acc, []};
+split_batch(Rest, 0, Acc) ->
+    {Acc, Rest};
+split_batch([Pid | Rest], N, Acc) ->
+    split_batch(Rest, N - 1, [Pid | Acc]).
+
+clean_down_batch(Pids) ->
+    Chans = lists:filtermap(fun clean_down_subscriber/1, Pids),
+    case emqx_cm_registry:unregister_channels(Chans) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            %% Delete the local rows anyway. The registry keeper removes
+            %% the registry rows of local pids that are dead.
+            ?SLOG(error, #{
+                msg => "failed_to_unregister_channels",
+                reason => Reason,
+                count => length(Chans)
+            })
+    end,
+    lists:foreach(fun do_clean_down/1, Chans).
+
+clean_down_subscriber(Pid) when is_pid(Pid) ->
     ok = emqx_broker_helper:clean_down(Pid),
     try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
         ClientId ->
-            do_clean_down(ClientId, Pid)
+            {true, {ClientId, Pid}}
     catch
         error:badarg ->
-            ok
+            false
     end.
 
-do_clean_down(ClientId, ChanPid) ->
+do_clean_down({ClientId, _ChanPid} = Chan) ->
     try
-        do_unregister_channel({ClientId, ChanPid})
+        unregister_channel_local(Chan)
     catch
         error:badarg -> ok
     end,

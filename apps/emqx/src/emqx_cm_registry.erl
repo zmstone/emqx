@@ -17,7 +17,8 @@
     register_channel/1,
     register_channel2/1,
     unregister_channel/1,
-    unregister_channel2/1
+    unregister_channel2/1,
+    unregister_channels/1
 ]).
 
 -export([lookup_channels/1, lookup_all_channels/1]).
@@ -117,6 +118,32 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
             ]);
         true ->
             mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid));
+        false ->
+            ok
+    end.
+
+-doc """
+Unregister global channels. On a replicant, this is one call to a core node.
+The core node calls `unregister_channel/1` for each channel, because a core node
+that runs an older release exports that function too.
+""".
+-spec unregister_channels([{emqx_types:clientid(), pid()}]) -> ok | {error, term()}.
+unregister_channels([]) ->
+    ok;
+unregister_channels(Chans) ->
+    case is_enabled() of
+        true ->
+            ?tp(debug, emqx_cm_registry_unregister_channels, #{count => length(Chans)}),
+            try
+                mria:async_dirty(?CM_SHARD, fun lists:foreach/2, [
+                    fun ?MODULE:unregister_channel/1, Chans
+                ])
+            of
+                ok -> ok;
+                Error -> {error, Error}
+            catch
+                Class:Reason -> {error, {Class, Reason}}
+            end;
         false ->
             ok
     end.

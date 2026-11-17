@@ -20,7 +20,8 @@
     submit_to_pool/2,
     submit_to_pool/3,
     async_submit_to_pool/2,
-    async_submit_to_pool/3
+    async_submit_to_pool/3,
+    take_async_task/1
 ]).
 
 -ifdef(TEST).
@@ -100,6 +101,18 @@ cast(Pool, Msg) ->
 %% @private
 worker(Pool) ->
     gproc_pool:pick_worker(Pool).
+
+-doc """
+Remove one queued task from the mailbox of the calling pool worker and return its
+arguments. The task must be queued by `async_submit_to_pool/3` with `Fun`.
+Call this function only from a task that runs in a pool worker.
+""".
+-spec take_async_task(fun()) -> {ok, Args :: list(any())} | none.
+take_async_task(Fun) ->
+    receive
+        {'$gen_cast', {async_submit, {Fun, Args}}} -> {ok, Args}
+    after 0 -> none
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
